@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="fr" data-fr-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Suivi des projets – Lab 17 bis</title>
+  <link rel="stylesheet" href="../vendor/dsfr/dsfr.min.css">
+  <link rel="stylesheet" href="../vendor/dsfr/utility/icons/icons.min.css">
+  <link rel="stylesheet" href="app.css">
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+</head>
+<body>
+  <header class="sp-entete">
+    <p class="sp-entete__titre">Suivi des projets</p>
+    <p class="fr-badge fr-badge--sm fr-badge--new fr-badge--no-icon">Prototype</p>
+  </header>
+
+  <div id="sp-demo" class="fr-notice fr-notice--info" hidden>
+    <div class="fr-container--fluid sp-marge">
+      <div class="fr-notice__body">
+        <p class="fr-notice__title">Mode démonstration : données fictives, rien n'est enregistré.</p>
+      </div>
+    </div>
+  </div>
+
+  <main id="sp-app" class="sp-marge" aria-live="polite">
+    <p>Chargement…</p>
+  </main>
+
+  <footer class="sp-pied sp-marge">
+    <p>Lab 17 bis · Dynamique Modernisation &amp; Transformation · Académie de Reims</p>
+    <div class="sp-pied__theme">
+      <label class="fr-label" for="sp-theme">Thème</label>
+      <select class="fr-select fr-select--sm" id="sp-theme">
+        <option value="auto">Automatique</option>
+        <option value="light">Clair</option>
+        <option value="dark">Sombre</option>
+      </select>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

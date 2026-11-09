@@ -6,6 +6,8 @@ L'interface prend la forme de **widgets personnalisés Grist** au **système de 
 
 ## Ce que contient ce dépôt
 
+- `suivi-projets/` : l'interface (banque des projets, fiche projet, déclaration et modification, plan d'action, journal, documents).
+- `vendor/dsfr/` : feuilles de style, polices et icônes du DSFR (version 1.15.4, licence MIT), embarquées pour ne dépendre d'aucun service externe.
 - `widget-test/` : page de test qui vérifie que l'instance Grist accepte un widget hébergé sur GitHub Pages.
 - `docs/` : modèle de données et règles d'accès attendues.
 - `donnees-fictives/` : un jeu d'exemple inventé, pour développer sans données réelles.
@@ -17,6 +19,14 @@ L'interface prend la forme de **widgets personnalisés Grist** au **système de 
 - Aucun nom, aucune adresse électronique, aucun projet réel.
 
 Le widget n'affiche rien seul : il lit les données du document Grist dans lequel il est intégré, avec les droits de la personne connectée.
+
+## Brancher l'interface
+
+1. Dans le document Grist, ajouter un widget **Personnalisé** sur la table `Projets`.
+2. Saisir l'adresse : `https://lab17bis.github.io/lab17bis-projets/suivi-projets/`.
+3. Accorder l'accès **Accès complet au document** : l'interface lit les six tables et écrit avec les droits de la personne connectée.
+
+Ouverte directement dans un navigateur, hors de Grist, l'adresse affiche une démonstration avec les données fictives. Rien n'y est enregistré.
 
 ## Brancher le widget de test
 

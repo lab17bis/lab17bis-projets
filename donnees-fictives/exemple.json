@@ -1,44 +1,99 @@
 {
-  "_avertissement": "Données entièrement inventées, pour le développement uniquement.",
+  "_avertissement": "Données entièrement inventées, pour le développement et la démonstration uniquement.",
   "Structures": [
-    { "id": 1, "Nom": "Site exemple", "Sigle": "SITE", "Type": "Site", "Parent": 0 },
-    { "id": 2, "Nom": "Service exemple A", "Sigle": "SEA", "Type": "Service", "Parent": 1 },
-    { "id": 3, "Nom": "Service exemple B", "Sigle": "SEB", "Type": "Service", "Parent": 1 }
+    { "id": 1, "Nom": "Site exemple", "Sigle": "Site A", "Type": "Site", "Parent": 0 },
+    { "id": 2, "Nom": "Direction exemple", "Sigle": "DIR-EX", "Type": "Direction", "Parent": 1 },
+    { "id": 3, "Nom": "Service des usages", "Sigle": "SU", "Type": "Service", "Parent": 2 },
+    { "id": 4, "Nom": "Bureau de la qualité", "Sigle": "BQ", "Type": "Bureau", "Parent": 2 },
+    { "id": 5, "Nom": "Site départemental exemple", "Sigle": "Site B", "Type": "Site", "Parent": 0 },
+    { "id": 6, "Nom": "Service départemental exemple", "Sigle": "SDE", "Type": "Service", "Parent": 5 }
   ],
   "Personnes": [
-    { "id": 1, "Nom": "Camille Exemple", "Email": "camille@exemple.fr", "Structure": 2 },
-    { "id": 2, "Nom": "Dominique Exemple", "Email": "dominique@exemple.fr", "Structure": 3 }
+    { "id": 1, "Nom": "Camille Exemple", "Structure": 3 },
+    { "id": 2, "Nom": "Dominique Exemple", "Structure": 4 },
+    { "id": 3, "Nom": "Alex Exemple", "Structure": 6 },
+    { "id": 4, "Nom": "Sacha Exemple", "Structure": 2 }
   ],
   "Projets": [
     {
       "id": 1,
-      "Titre": "Projet exemple 1",
-      "Resume": "Projet fictif pour tester l'affichage.",
-      "Structure_porteuse": 2,
-      "Porteurs": [1],
-      "Equipe": [2],
+      "Titre": "Simplifier l'accueil des nouveaux agents",
+      "Resume": "Projet fictif : repenser le parcours d'arrivée, du premier courriel au premier mois.",
+      "Structure_porteuse": 3,
+      "Porteurs": [1, 2],
+      "Equipe": [3],
+      "Structures_associees": [4],
       "Phase": "Construction",
       "Etat": "En cours",
+      "Origine": "Commande de la hiérarchie",
+      "Commanditaire": 4,
+      "Mission": "Proposer un parcours d'accueil commun d'ici la fin de l'année scolaire.",
+      "Objectifs": "Un livret d'accueil, une journée d'intégration, un référent par service.",
+      "Thematiques": ["Ressources humaines", "Qualité de vie au travail"],
+      "Date_debut": "2026-09-01",
+      "Echeance": "2027-06-30",
       "Visibilite": "Académique",
-      "Echeance": "2027-06-30"
+      "Maj_le": 1793000000
     },
     {
       "id": 2,
-      "Titre": "Projet exemple 2",
-      "Resume": "Second projet fictif.",
-      "Structure_porteuse": 3,
-      "Porteurs": [2],
+      "Titre": "Tableau de bord des demandes usagers",
+      "Resume": "Projet fictif : suivre les délais de réponse aux demandes.",
+      "Structure_porteuse": 6,
+      "Porteurs": [3],
       "Equipe": [],
       "Phase": "Idée",
       "Etat": "En pause",
+      "Origine": "Initiative de la structure",
+      "Thematiques": ["Relation à l'usager", "Pilotage"],
+      "Echeance": null,
       "Visibilite": "Restreint",
-      "Echeance": null
+      "Maj_le": 1780000000
+    },
+    {
+      "id": 3,
+      "Titre": "Expérimentation d'un espace de travail partagé",
+      "Resume": "Projet fictif : tester un espace de travail commun pendant un trimestre.",
+      "Structure_porteuse": 4,
+      "Porteurs": [2],
+      "Equipe": [1, 4],
+      "Phase": "Expérimentation",
+      "Etat": "Bloqué",
+      "Origine": "Feuille de route académique",
+      "Thematiques": ["Modernisation et transformation"],
+      "Date_debut": "2026-10-01",
+      "Echeance": "2026-12-20",
+      "Visibilite": "Académique",
+      "Maj_le": 1794100000
+    },
+    {
+      "id": 4,
+      "Titre": "Guide des écrits administratifs",
+      "Resume": "Projet fictif terminé, conservé pour l'historique.",
+      "Structure_porteuse": 2,
+      "Porteurs": [4],
+      "Equipe": [],
+      "Phase": "Clos",
+      "Etat": "Terminé",
+      "Origine": "Plan ou réforme nationale",
+      "Thematiques": ["Communication"],
+      "Echeance": "2026-06-30",
+      "Visibilite": "Académique",
+      "Maj_le": 1782000000
     }
   ],
   "Actions": [
-    { "id": 1, "Projet": 1, "Intitule": "Action exemple", "Responsable": 1, "Debut": "2026-12-01", "Fin": "2027-01-15", "Etat": "En cours" }
+    { "id": 1, "Projet": 1, "Intitule": "Recueillir les besoins des derniers arrivants", "Responsable": 1, "Debut": "2026-09-01", "Fin": "2026-10-15", "Etat": "Fait" },
+    { "id": 2, "Projet": 1, "Intitule": "Rédiger le livret d'accueil", "Responsable": 2, "Debut": "2026-10-16", "Fin": "2026-12-15", "Etat": "En cours" },
+    { "id": 3, "Projet": 1, "Intitule": "Organiser la première journée d'intégration", "Responsable": 3, "Debut": "2027-01-10", "Fin": "2027-02-28", "Etat": "À faire" },
+    { "id": 4, "Projet": 3, "Intitule": "Choisir la salle", "Responsable": 2, "Fin": "2026-10-20", "Etat": "En cours" }
   ],
   "Journal": [
-    { "id": 1, "Projet": 1, "Type": "Avancement", "Message": "Message exemple." }
+    { "id": 1, "Projet": 1, "Type": "Avancement", "Message": "Douze entretiens menés. Trois irritants reviennent souvent.", "Auteur": "Camille Exemple", "Cree_le": 1792500000 },
+    { "id": 2, "Projet": 1, "Type": "Décision", "Message": "Le livret sera numérique, avec une version imprimable.", "Auteur": "Dominique Exemple", "Cree_le": 1793900000 },
+    { "id": 3, "Projet": 3, "Type": "Difficulté", "Message": "La salle prévue n'est plus disponible.", "Auteur": "Dominique Exemple", "Cree_le": 1794100000 }
+  ],
+  "Documents": [
+    { "id": 1, "Projet": 1, "Titre": "Note de cadrage (exemple)", "Type": "Note de cadrage", "Lien": "https://exemple.fr/note-de-cadrage" }
   ]
 }
