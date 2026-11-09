@@ -1,0 +1,21 @@
+# Données réelles : ne jamais versionner
+*.grist
+*.grist-*
+*.sqlite
+*.db
+*.csv
+*.xlsx
+*.xls
+exports/
+donnees-reelles/
+
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Environnement
+node_modules/
+.DS_Store
+Thumbs.db

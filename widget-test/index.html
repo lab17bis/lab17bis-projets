@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test de widget – suivi des projets</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body { font-family: Marianne, Arial, sans-serif; margin: 1.5rem; color: #161616; }
+    h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+    .ok { color: #18753c; font-weight: 700; }
+    .ko { color: #ce0500; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>Test de connexion du widget</h1>
+  <p id="etat">Connexion à Grist en cours…</p>
+
+  <script>
+    var etat = document.getElementById('etat');
+
+    grist.ready({ requiredAccess: 'read table' });
+
+    grist.onRecords(function (records) {
+      etat.className = 'ok';
+      etat.textContent = 'Widget connecté. Projets visibles avec vos droits : ' + records.length + '.';
+    });
+
+    setTimeout(function () {
+      if (etat.className !== 'ok') {
+        etat.className = 'ko';
+        etat.textContent = "Pas de réponse de Grist. Vérifiez que l'accès « Lecture de la table » est accordé.";
+      }
+    }, 8000);
+  </script>
+</body>
+</html>

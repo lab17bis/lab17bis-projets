@@ -1,0 +1,44 @@
+{
+  "_avertissement": "Données entièrement inventées, pour le développement uniquement.",
+  "Structures": [
+    { "id": 1, "Nom": "Site exemple", "Sigle": "SITE", "Type": "Site", "Parent": 0 },
+    { "id": 2, "Nom": "Service exemple A", "Sigle": "SEA", "Type": "Service", "Parent": 1 },
+    { "id": 3, "Nom": "Service exemple B", "Sigle": "SEB", "Type": "Service", "Parent": 1 }
+  ],
+  "Personnes": [
+    { "id": 1, "Nom": "Camille Exemple", "Email": "camille@exemple.fr", "Structure": 2 },
+    { "id": 2, "Nom": "Dominique Exemple", "Email": "dominique@exemple.fr", "Structure": 3 }
+  ],
+  "Projets": [
+    {
+      "id": 1,
+      "Titre": "Projet exemple 1",
+      "Resume": "Projet fictif pour tester l'affichage.",
+      "Structure_porteuse": 2,
+      "Porteurs": [1],
+      "Equipe": [2],
+      "Phase": "Construction",
+      "Etat": "En cours",
+      "Visibilite": "Académique",
+      "Echeance": "2027-06-30"
+    },
+    {
+      "id": 2,
+      "Titre": "Projet exemple 2",
+      "Resume": "Second projet fictif.",
+      "Structure_porteuse": 3,
+      "Porteurs": [2],
+      "Equipe": [],
+      "Phase": "Idée",
+      "Etat": "En pause",
+      "Visibilite": "Restreint",
+      "Echeance": null
+    }
+  ],
+  "Actions": [
+    { "id": 1, "Projet": 1, "Intitule": "Action exemple", "Responsable": 1, "Debut": "2026-12-01", "Fin": "2027-01-15", "Etat": "En cours" }
+  ],
+  "Journal": [
+    { "id": 1, "Projet": 1, "Type": "Avancement", "Message": "Message exemple." }
+  ]
+}
