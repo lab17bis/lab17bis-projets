@@ -39,7 +39,7 @@
   };
 
   var JOURS_ALERTE = 60;
-  var TABLES = ['Structures', 'Personnes', 'Projets', 'Actions', 'Journal', 'Documents'];
+  var TABLES = ['Structures', 'Personnes', 'Comptes', 'Projets', 'Actions', 'Journal', 'Documents'];
 
   // ---------------------------------------------------------------------------
   // État de l'application
@@ -58,7 +58,14 @@
     formCle: null,       // route qui a initialisé le formulaire
     brouillons: {},      // saisies des petits formulaires (action, journal, document)
     alerte: null,        // { type: 'error'|'success', texte }
-    suppression: null    // 'Table:id' en attente de confirmation
+    suppression: null,   // 'Table:id' en attente de confirmation
+    // Personne connectée. Grist ne donne pas son email au widget : on le lit dans
+    // sa ligne de la table Comptes, la seule que les règles d'accès lui montrent.
+    moi: { email: '', compte: null, profil: null, lecture: false },
+    accueilVu: false,    // redirection vers « Mon profil » déjà faite
+    profilForm: null,    // saisie du formulaire « Mon profil »
+    ajout: null,         // { champ, Nom, Structure } : ajout d'une personne depuis le formulaire projet
+    doublon: null        // nom déjà signalé comme proche d'un profil existant
   };
 
   var app = document.getElementById('sp-app');
@@ -189,6 +196,46 @@
       if (s.Active === undefined || s.Active === null) s.Active = true;
     });
     data.Projets.forEach(completerProjet);
+    if (DEMO) calculerEmailsDemo();
+    identifierMoi();
+  }
+
+  // En mode démo, refait le calcul de la colonne Personnes.Email de Grist.
+  function calculerEmailsDemo() {
+    data.Personnes.forEach(function (p) {
+      var emails = data.Comptes.filter(function (c) { return num(c.Profil) === p.id && c.Email; })
+        .map(function (c) { return c.Email; });
+      p.Email = p.Email_saisi || (emails.length && emails.every(function (e) { return e === emails[0]; }) ? emails[0] : '');
+      p.Compte_lie = !!p.Email;
+    });
+  }
+
+  // Grist renvoie ['C'] pour une cellule masquée par les règles d'accès.
+  function emailDe(ligne) { return ligne && typeof ligne.Email === 'string' ? ligne.Email : ''; }
+
+  function identifierMoi() {
+    var m = etat.moi;
+    var comptes = (data.Comptes || []).filter(function (c) { return emailDe(c); })
+      .sort(function (a, b) { return a.id - b.id; });
+    m.compte = comptes[0] || null;
+    m.email = m.compte ? m.compte.Email : '';
+    m.profil = null;
+    if (!m.email) return;
+    var lie = idx.Personnes[num(m.compte.Profil)];
+    if (lie && (!emailDe(lie) || emailDe(lie) === m.email)) { m.profil = lie.id; return; }
+    var trouve = data.Personnes.filter(function (x) { return emailDe(x) === m.email; })[0];
+    if (trouve) m.profil = trouve.id;
+  }
+
+  // Clé de comparaison des noms : sans accents, sans ponctuation, mots triés.
+  function cleNom(nom) {
+    return sansAccent(nom).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  }
+
+  function personneProche(nom) {
+    var cle = cleNom(nom);
+    if (!cle) return null;
+    return data.Personnes.filter(function (p) { return cleNom(p.Nom) === cle; })[0] || null;
   }
 
   function cheminStructure(s) {
@@ -269,6 +316,7 @@
         if (t === 'Journal') { l.Cree_le = maintenant; l.Auteur = 'Vous (démonstration)'; }
         if (t === 'Actions') { l.Maj_le = maintenant; }
         if (t === 'Projets') { l.Maj_le = maintenant; }
+        if (t === 'Comptes' && !l.Email) { l.Email = 'vous@exemple.fr'; }
         data[t].push(l);
         retValues.push(id);
       } else if (a[0] === 'UpdateRecord') {
@@ -286,15 +334,16 @@
     return { retValues: retValues };
   }
 
-  function messageErreur(err) {
+  function messageErreur(err, refus) {
     var m = String((err && err.message) || err || '');
     if (/access|denied|blocked|permission|refus/i.test(m)) {
+      if (refus) return refus;
       return "Grist a refusé l'enregistrement : vous n'avez pas les droits pour modifier cet élément. Seuls les porteurs du projet, son équipe (pour le plan d'action, le journal et les documents) et les administrateurs peuvent écrire.";
     }
     return "L'enregistrement a échoué. Détail technique : " + m;
   }
 
-  function executer(actions, succes, apres) {
+  function executer(actions, succes, apres, refus) {
     etat.alerte = null;
     return ecrire(actions)
       .then(function (res) {
@@ -305,7 +354,40 @@
         });
       })
       .catch(function (err) {
-        etat.alerte = { type: 'error', texte: messageErreur(err) };
+        etat.alerte = { type: 'error', texte: messageErreur(err, refus) };
+        rendre();
+      });
+  }
+
+  // Première ouverture : crée la ligne Comptes de la personne connectée.
+  // Grist y inscrit lui-même son email. Un lecteur ne peut pas écrire : refus attendu.
+  var compteDemande = false;
+  function assurerCompte() {
+    if (etat.moi.compte || compteDemande) return Promise.resolve();
+    compteDemande = true;
+    return ecrire([['AddRecord', 'Comptes', null, {}]])
+      .then(function () { return DEMO ? null : charger(); })
+      .catch(function () { etat.moi.lecture = true; });
+  }
+
+  var REFUS_PERSONNE = "Grist a refusé l'enregistrement. Vous pouvez créer des profils et modifier le vôtre ou ceux que vous avez créés, " +
+    "mais pas un profil déjà rattaché au compte d'une autre personne.";
+  var REFUS_RATTACHEMENT = "Ce profil est déjà rattaché au compte d'une autre personne. Si c'est une erreur, contactez un administrateur du suivi.";
+
+  function creerMonProfil(nom, structure) {
+    etat.alerte = null;
+    ecrire([['AddRecord', 'Personnes', null, { Nom: nom, Structure: structure }]])
+      .then(function (res) {
+        return ecrire([['UpdateRecord', 'Comptes', etat.moi.compte.id, { Profil: res.retValues[0] }]]);
+      })
+      .then(function () { return DEMO ? null : charger(); })
+      .then(function () {
+        etat.profilForm = null; etat.doublon = null;
+        etat.alerte = { type: 'success', texte: 'Profil créé. Vous pouvez être désigné porteur et déclarer vos projets.' };
+        rendre();
+      })
+      .catch(function (err) {
+        etat.alerte = { type: 'error', texte: messageErreur(err, REFUS_PERSONNE) };
         rendre();
       });
   }
@@ -319,6 +401,7 @@
     var m;
     if (h === 'nouveau') return { vue: 'form', id: null };
     if (h === 'pilotage') return { vue: 'pilotage' };
+    if (h === 'profil') return { vue: 'profil' };
     if ((m = h.match(/^projet\/(\d+)\/modifier$/))) return { vue: 'form', id: +m[1] };
     if ((m = h.match(/^projet\/(\d+)$/))) return { vue: 'fiche', id: +m[1] };
     return { vue: 'banque' };
@@ -338,6 +421,7 @@
     if (r.vue === 'fiche') html = vueFiche(r.id);
     else if (r.vue === 'form') html = vueFormulaire(r.id);
     else if (r.vue === 'pilotage') html = vuePilotage();
+    else if (r.vue === 'profil') html = vueProfil();
     else html = vueBanque();
     app.innerHTML = html;
   }
@@ -629,9 +713,100 @@
 
   function navigation(active) {
     var liens = [['banque', '#/', 'Banque des projets'], ['pilotage', '#/pilotage', "Vue d'ensemble"]];
+    if (etat.moi.email && !etat.moi.lecture) {
+      liens.push(['profil', '#/profil', etat.moi.profil ? 'Mon profil : ' + nomPersonne(etat.moi.profil) : 'Mon profil']);
+    }
     return '<nav class="sp-nav" aria-label="Vues du suivi"><ul>' + liens.map(function (l) {
-      return '<li><a href="' + l[1] + '"' + (l[0] === active ? ' aria-current="page"' : '') + '>' + esc(l[2]) + '</a></li>';
-    }).join('') + '</ul></nav>';
+      return '<li' + (l[0] === 'profil' ? ' class="sp-nav__profil"' : '') + '><a href="' + l[1] + '"' +
+        (l[0] === active ? ' aria-current="page"' : '') + '>' + esc(l[2]) + '</a></li>';
+    }).join('') + '</ul></nav>' + (active === 'profil' ? '' : blocProfilManquant());
+  }
+
+  function profilManquant() { return !!(etat.moi.email && !etat.moi.profil && !etat.moi.lecture); }
+
+  function blocProfilManquant() {
+    if (!profilManquant()) return '';
+    return '<div class="fr-notice fr-notice--info sp-notice"><div class="fr-container"><div class="fr-notice__body">' +
+      '<p class="fr-notice__title">Vous n\'avez pas encore de profil dans l\'annuaire. ' +
+      '<a href="#/profil">Créer mon profil</a> pour être désigné porteur ou membre d\'une équipe.</p></div></div></div>';
+  }
+
+  // --- Mon profil -----------------------------------------------------------
+
+  function vueProfil() {
+    var m = etat.moi;
+    var structures = structuresTriees().map(function (s) { return { v: s.id, t: s.Chemin }; });
+    var html = navigation('profil') + blocAlerte();
+    if (!m.email) {
+      return html + '<h1 class="fr-h3">Mon profil</h1><p>' + (m.lecture
+        ? 'Vous consultez le suivi en lecture seule : vous ne pouvez pas créer de profil. Demandez un accès en écriture à un administrateur.'
+        : 'Identification en cours…') + '</p>';
+    }
+    if (m.profil) {
+      var moi = idx.Personnes[m.profil];
+      var f = etat.profilForm || (etat.profilForm = { Nom: moi.Nom || '', Structure: num(moi.Structure) || '' });
+      return html + '<h1 class="fr-h3">Mon profil</h1>' +
+        '<p>Ce profil est rattaché à votre compte Grist. Vos collègues le choisissent pour vous désigner porteur ou membre d\'une équipe : ' +
+        'vous obtenez alors les droits correspondants sur le projet.</p>' +
+        '<form novalidate data-form="mon-profil" class="sp-form-court">' +
+        champProfil('pr-nom', 'Nom', 'Nom et prénom', 'Écrivez votre nom de famille en majuscules, par exemple : MARTIN Claire.', f.Nom) +
+        champSelect('pr-structure', 'Structure de rattachement', f.Structure, structures, 'data-profil="Structure"', 'Choisir une structure') +
+        '<button class="fr-btn" type="submit">Enregistrer</button></form>';
+    }
+    var g = etat.profilForm || (etat.profilForm = { Nom: '', Structure: '', Choix: '' });
+    var libres = data.Personnes.filter(function (p) { return !p.Compte_lie; })
+      .sort(function (a, b) { return String(a.Nom).localeCompare(String(b.Nom), 'fr'); });
+    html += '<h1 class="fr-h3">Qui êtes-vous ?</h1>' +
+      '<p>Indiquez votre nom une seule fois. Grist rattache ce profil à votre compte : personne d\'autre ne peut l\'utiliser à votre place.</p>';
+    if (libres.length) {
+      html += '<section class="sp-bloc"><h2 class="fr-h5">Un collègue vous a déjà ajouté ?</h2>' +
+        '<p class="fr-hint-text">Ces profils ont été créés par des collègues et ne sont rattachés à aucun compte. Choisissez le vôtre seulement s\'il s\'agit bien de vous.</p>' +
+        '<div class="sp-ligne-form">' +
+        champSelect('pr-choix', 'Mon nom dans l\'annuaire', g.Choix,
+          libres.map(function (p) { return { v: p.id, t: p.Nom + (libelleStructure(p.Structure) ? ' (' + libelleStructure(p.Structure) + ')' : '') }; }),
+          'data-profil="Choix"', 'Choisir') +
+        '<button class="fr-btn fr-btn--secondary" type="button" data-action="rattacher">C\'est moi</button></div></section>';
+    }
+    html += '<section class="sp-bloc"><h2 class="fr-h5">' + (libres.length ? 'Sinon, créez votre profil' : 'Créez votre profil') + '</h2>' +
+      '<form novalidate data-form="mon-profil" class="sp-form-court">' +
+      champProfil('pr-nom', 'Nom', 'Nom et prénom', 'Écrivez votre nom de famille en majuscules, par exemple : MARTIN Claire.', g.Nom) +
+      champSelect('pr-structure', 'Structure de rattachement', g.Structure, structures, 'data-profil="Structure"', 'Choisir une structure') +
+      '<ul class="fr-btns-group fr-btns-group--inline-md"><li><button class="fr-btn" type="submit">Créer mon profil</button></li>' +
+      '<li><a class="fr-btn fr-btn--tertiary" href="#/">Plus tard</a></li></ul></form></section>';
+    return html;
+  }
+
+  function champProfil(id, champ, libelle, aide, valeur) {
+    return '<div class="fr-input-group"><label class="fr-label" for="' + id + '">' + esc(libelle) +
+      '<span class="fr-hint-text">' + esc(aide) + '</span></label>' +
+      '<input class="fr-input" id="' + id + '" data-profil="' + champ + '" value="' + esc(valeur) + '" autocomplete="name"></div>';
+  }
+
+  function enregistrerMonProfil() {
+    var f = etat.profilForm || {};
+    var nom = String(f.Nom || '').trim();
+    var structure = num(f.Structure);
+    if (!nom || !structure) {
+      etat.alerte = { type: 'error', texte: 'Indiquez votre nom et votre structure de rattachement.' };
+      rendre();
+      return;
+    }
+    if (etat.moi.profil) {
+      executer([['UpdateRecord', 'Personnes', etat.moi.profil, { Nom: nom, Structure: structure }]], 'Profil enregistré.', function () {
+        etat.profilForm = null;
+      }, REFUS_PERSONNE);
+      return;
+    }
+    var proche = personneProche(nom);
+    if (proche && etat.doublon !== cleNom(nom)) {
+      etat.doublon = cleNom(nom);
+      etat.alerte = { type: 'warning', texte: 'Un profil « ' + proche.Nom + ' » existe déjà' +
+        (proche.Compte_lie ? ' et il est rattaché à un compte.' : '. Si c\'est vous, choisissez-le dans la liste « Un collègue vous a déjà ajouté ? ».') +
+        ' S\'il s\'agit d\'une autre personne, cliquez à nouveau sur « Créer mon profil ».' };
+      rendre();
+      return;
+    }
+    creerMonProfil(nom, structure);
   }
 
   function selecteurMode(nom, valeur, modes, legende) {
@@ -888,7 +1063,8 @@
       Thematiques: liste(p.Thematiques), Date_debut: dateVersSaisie(p.Date_debut), Echeance: dateVersSaisie(p.Echeance),
       Visibilite: p.Visibilite || 'Académique'
     } : {
-      Titre: '', Resume: '', Structure_porteuse: '', Porteurs: [], Equipe: [], Structures_associees: [],
+      Titre: '', Resume: '', Structure_porteuse: num(etat.moi.profil && idx.Personnes[etat.moi.profil].Structure) || '',
+      Porteurs: etat.moi.profil ? [etat.moi.profil] : [], Equipe: [], Structures_associees: [],
       Phase: 'Idée', Etat: 'En cours', Origine: '', Commanditaire: '', Mission: '', Objectifs: '',
       Thematiques: [], Date_debut: '', Echeance: '', Visibilite: 'Académique'
     };
@@ -916,7 +1092,45 @@
       (puces ? '<ul class="sp-puces">' + puces + '</ul>' : '') +
       '<select class="fr-select" id="' + id + '" data-ajout-multiple="' + champ + '"><option value="">Ajouter…</option>' +
       restants.map(function (o) { return '<option value="' + o.v + '">' + esc(o.t) + '</option>'; }).join('') +
-      '</select></div>';
+      '</select>' + (nomDe === nomPersonne ? blocAjoutPersonne(champ) : '') + '</div>';
+  }
+
+  // Ajout d'une personne absente de l'annuaire, sans quitter le formulaire projet.
+  function blocAjoutPersonne(champ) {
+    if (etat.moi.lecture) return '';
+    var a = etat.ajout;
+    if (!a || a.champ !== champ) {
+      return '<button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary-no-outline fr-icon-user-add-line fr-btn--icon-left sp-ajout-personne" ' +
+        'data-action="ouvrir-ajout" data-champ="' + champ + '">Ajouter une personne absente de la liste</button>';
+    }
+    var structures = structuresTriees().map(function (s) { return { v: s.id, t: s.Chemin }; });
+    var proche = a.proche ? idx.Personnes[a.proche] : null;
+    return '<div class="sp-nouvelle-personne" role="group" aria-label="Nouvelle personne">' +
+      '<p class="fr-text--sm fr-mb-1w">Elle pourra se rattacher à ce profil à sa première connexion. Ses droits sur le projet ne s\'activent qu\'à ce moment-là.</p>' +
+      '<div class="fr-input-group"><label class="fr-label" for="aj-nom-' + champ + '">Nom et prénom' +
+      '<span class="fr-hint-text">Par exemple : MARTIN Claire.</span></label>' +
+      '<input class="fr-input" id="aj-nom-' + champ + '" data-ajout="Nom" value="' + esc(a.Nom) + '"></div>' +
+      champSelect('aj-structure-' + champ, 'Structure', a.Structure, structures, 'data-ajout="Structure"', 'Je ne sais pas') +
+      (proche ? '<div class="fr-alert fr-alert--warning fr-alert--sm sp-alerte"><p>« ' + esc(proche.Nom) + ' »' +
+        (libelleStructure(proche.Structure) ? ' (' + esc(libelleStructure(proche.Structure)) + ')' : '') +
+        ' est déjà dans l\'annuaire. <button type="button" class="fr-link" data-action="choisir-proche" data-champ="' + champ + '" data-id="' + proche.id + '">Choisir cette personne</button>' +
+        ' ou cliquez à nouveau sur « Ajouter » s\'il s\'agit de quelqu\'un d\'autre.</p></div>' : '') +
+      '<ul class="fr-btns-group fr-btns-group--inline-sm fr-btns-group--sm">' +
+      '<li><button type="button" class="fr-btn fr-btn--sm" data-action="creer-personne" data-champ="' + champ + '">Ajouter</button></li>' +
+      '<li><button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary" data-action="fermer-ajout">Annuler</button></li></ul></div>';
+  }
+
+  function creerPersonne(champ) {
+    var a = etat.ajout;
+    var nom = String(a.Nom || '').trim();
+    if (!nom) { etat.alerte = { type: 'error', texte: 'Indiquez le nom de la personne à ajouter.' }; rendre(); return; }
+    var proche = personneProche(nom);
+    if (proche && a.proche !== proche.id) { a.proche = proche.id; etat.alerte = null; rendre(); return; }
+    executer([['AddRecord', 'Personnes', null, { Nom: nom, Structure: num(a.Structure) }]], '« ' + nom + ' » ajouté à l\'annuaire.', function (res) {
+      var id = res && res.retValues && res.retValues[0];
+      if (id && etat.form && etat.form[champ].indexOf(id) === -1) etat.form[champ].push(id);
+      etat.ajout = null;
+    }, REFUS_PERSONNE);
   }
 
   function vueFormulaire(id) {
@@ -931,7 +1145,7 @@
     var retour = id ? '#/projet/' + id : '#/';
 
     var html = '<p><a class="fr-link fr-icon-arrow-left-line fr-link--icon-left" href="' + retour + '">' +
-      (id ? 'Retour à la fiche' : 'Banque des projets') + '</a></p>' + blocAlerte() +
+      (id ? 'Retour à la fiche' : 'Banque des projets') + '</a></p>' + blocAlerte() + blocProfilManquant() +
       '<h1 class="fr-h3">' + (id ? 'Modifier la fiche projet' : 'Déclarer un projet') + '</h1>' +
       '<p class="fr-hint-text fr-mb-3w">Les champs marqués d\'un astérisque (*) sont obligatoires. ' +
       'Les porteurs pourront ensuite mettre à jour la fiche ; l\'équipe pourra compléter le plan d\'action, le journal et les documents.</p>' +
@@ -951,7 +1165,6 @@
         "L'équipe peut compléter le plan d'action, le journal et les documents.", personnes, nomPersonne) + '</div>' +
       '<div class="fr-fieldset__element">' + selecteurMultiple('p-associees', 'Structures_associees', 'Structures associées', '', structures,
         function (v) { return cheminDe(v); }) + '</div>' +
-      '<div class="fr-fieldset__element"><p class="fr-hint-text">Une personne manque dans la liste ? Demandez à un administrateur de l\'ajouter à l\'annuaire.</p></div>' +
       '</fieldset>' +
 
       '<fieldset class="fr-fieldset"><legend class="fr-fieldset__legend fr-h5">La mission</legend>' +
@@ -1044,6 +1257,26 @@
     else if (a === 'deplacer') {
       deplacer(el.getAttribute('data-table'), num(el.getAttribute('data-id')), el.getAttribute('data-champ'), el.getAttribute('data-valeur'));
     }
+    else if (a === 'ouvrir-ajout') {
+      etat.ajout = { champ: el.getAttribute('data-champ'), Nom: '', Structure: '', proche: null }; etat.alerte = null; rendre();
+      var champNom = document.getElementById('aj-nom-' + etat.ajout.champ);
+      if (champNom) champNom.focus();
+    }
+    else if (a === 'fermer-ajout') { etat.ajout = null; rendre(); }
+    else if (a === 'creer-personne') { creerPersonne(el.getAttribute('data-champ')); }
+    else if (a === 'choisir-proche') {
+      var ch = el.getAttribute('data-champ');
+      var pid = num(el.getAttribute('data-id'));
+      if (etat.form && etat.form[ch].indexOf(pid) === -1) etat.form[ch].push(pid);
+      etat.ajout = null; rendre();
+    }
+    else if (a === 'rattacher') {
+      var choix = num(etat.profilForm && etat.profilForm.Choix);
+      if (!choix) { etat.alerte = { type: 'error', texte: 'Choisissez votre nom dans la liste.' }; rendre(); return; }
+      executer([['UpdateRecord', 'Comptes', etat.moi.compte.id, { Profil: choix }]], 'Profil rattaché à votre compte.', function () {
+        etat.profilForm = null;
+      }, REFUS_RATTACHEMENT);
+    }
     else if (a === 'filtrer-structure') {
       etat.pilotage.structure = el.getAttribute('data-id'); rendre(); window.scrollTo(0, 0);
     }
@@ -1111,6 +1344,11 @@
     if (el.hasAttribute('data-brouillon')) {
       brouillon(el.getAttribute('data-brouillon'))[el.getAttribute('data-champ')] = el.value;
     }
+    if (el.hasAttribute('data-ajout') && etat.ajout) {
+      etat.ajout[el.getAttribute('data-ajout')] = el.value;
+      if (el.getAttribute('data-ajout') === 'Nom') etat.ajout.proche = null;
+    }
+    if (el.hasAttribute('data-profil') && etat.profilForm) etat.profilForm[el.getAttribute('data-profil')] = el.value;
   });
 
   app.addEventListener('change', function (e) {
@@ -1138,6 +1376,10 @@
       etat.form[el.getAttribute('data-champ-form')] = el.value;
     } else if (el.hasAttribute('data-brouillon')) {
       brouillon(el.getAttribute('data-brouillon'))[el.getAttribute('data-champ')] = el.value;
+    } else if (el.hasAttribute('data-ajout') && etat.ajout) {
+      etat.ajout[el.getAttribute('data-ajout')] = el.value;
+    } else if (el.hasAttribute('data-profil') && etat.profilForm) {
+      etat.profilForm[el.getAttribute('data-profil')] = el.value;
     } else if (el.hasAttribute('data-etat-action')) {
       executer([['UpdateRecord', 'Actions', num(el.getAttribute('data-etat-action')), { Etat: el.value }]]);
     }
@@ -1149,6 +1391,7 @@
     var type = form.getAttribute('data-form');
     var pid = num(form.getAttribute('data-projet'));
     if (type === 'projet') { enregistrerProjet(pid || null); return; }
+    if (type === 'mon-profil') { enregistrerMonProfil(); return; }
 
     var cle = type + '-' + pid;
     var b = brouillon(cle);
@@ -1175,8 +1418,9 @@
 
   var ficheCourante = null;
   window.addEventListener('hashchange', function () {
-    etat.alerte = null; etat.suppression = null;
+    etat.alerte = null; etat.suppression = null; etat.ajout = null; etat.doublon = null;
     var r = route();
+    if (r.vue !== 'profil') etat.profilForm = null;
     if (r.vue === 'fiche' && r.id !== ficheCourante) { etat.onglet = 'presentation'; ficheCourante = r.id; }
     rendre();
     window.scrollTo(0, 0);
@@ -1234,14 +1478,22 @@
 
   if (DEMO) {
     document.getElementById('sp-demo').hidden = false;
-    charger().then(rendre).catch(erreurChargement);
+    charger().then(assurerCompte).then(rendre).catch(erreurChargement);
   } else {
     grist.ready({ requiredAccess: 'full', allowSelectBy: false });
     var attente = null;
     // Grist prévient quand la table liée change : on recharge tout, sans perdre la saisie en cours.
     grist.onRecords(function () {
       clearTimeout(attente);
-      attente = setTimeout(function () { charger().then(function () { appliquerTheme(); rendre(); }).catch(erreurChargement); }, 150);
+      attente = setTimeout(function () {
+        charger().then(assurerCompte).then(function () {
+          appliquerTheme();
+          // Première visite sans profil : on propose de le créer.
+          if (!etat.accueilVu && route().vue === 'banque' && profilManquant()) { etat.accueilVu = true; location.hash = '#/profil'; return; }
+          etat.accueilVu = true;
+          rendre();
+        }).catch(erreurChargement);
+      }, 150);
     });
   }
 })();

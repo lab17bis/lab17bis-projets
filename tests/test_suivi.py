@@ -61,6 +61,7 @@ window.grist = (function () {
           });
           if (a[0] === 'AddRecord') {
             var id = t.reduce(function (m, l) { return Math.max(m, l.id); }, 0) + 1;
+            if (a[1] === 'Comptes' && !champs.Email) champs.Email = window.parent.__MOI__ || 'moi@exemple.fr';
             champs.id = id; t.push(champs); return id;
           }
           if (a[0] === 'UpdateRecord') { Object.assign(t.find(function (l) { return l.id === a[2]; }), champs); }
@@ -99,7 +100,8 @@ with sync_playwright() as p:
     suivre(pg, "démo")
     pg.goto(BASE + "/suivi-projets/", wait_until="networkidle")
     pg.wait_for_timeout(800)
-    ok("banque : navigation affichée", pg.locator(".sp-nav a").count() == 2)
+    ok("banque : navigation avec « Mon profil »", pg.locator(".sp-nav a").count() == 3
+       and "Camille Exemple" in pg.locator(".sp-nav__profil").inner_text())
     ok("banque : cartes", pg.locator(".fr-card").count() >= 3, pg.locator(".fr-card").count())
 
     # Fiche du projet 1, plan d'action
@@ -173,9 +175,22 @@ with sync_playwright() as p:
     pg.wait_for_timeout(300)
     ok("documents : suppression avec confirmation", pg.locator("a[href='https://exemple.fr/doc']").count() == 0)
 
-    # Déclaration
+    # Déclaration : porteur pré-rempli, ajout d'une personne absente
     pg.goto(BASE + "/suivi-projets/#/nouveau")
     pg.wait_for_timeout(300)
+    ok("déclaration : je suis porteur par défaut", pg.locator("#p-porteurs").locator("xpath=..").locator(".fr-tag").count() == 1)
+    pg.click("button[data-action='ouvrir-ajout'][data-champ='Porteurs']")
+    pg.fill("#aj-nom-Porteurs", "EXEMPLE Camille")
+    pg.click("button[data-action='creer-personne'][data-champ='Porteurs']")
+    pg.wait_for_timeout(200)
+    ok("ajout personne : doublon signalé", pg.locator(".sp-nouvelle-personne .fr-alert--warning").count() == 1)
+    pg.fill("#aj-nom-Porteurs", "NOUVELLE Personne")
+    pg.click("button[data-action='creer-personne'][data-champ='Porteurs']")
+    pg.wait_for_timeout(300)
+    ok("ajout personne : créée et ajoutée aux porteurs",
+       "NOUVELLE Personne" in pg.locator("#p-porteurs").locator("xpath=..").inner_text())
+    pg.click("button[data-action='retirer'][data-champ='Porteurs']:has-text('NOUVELLE Personne')")
+    pg.wait_for_timeout(100)
     pg.click("form[data-form='projet'] button[type='submit']")
     pg.wait_for_timeout(200)
     ok("déclaration : champs obligatoires signalés", "Il manque" in pg.locator(".fr-alert--error").inner_text())
@@ -276,6 +291,63 @@ with sync_playwright() as p:
     ajout = [a for a in actions if a[0] == "AddRecord" and a[1] == "Projets"]
     ok("grist : RefList encodée ['L', …]", bool(ajout) and ajout[-1][3]["Porteurs"][0] == "L", ajout[-1][3]["Porteurs"] if ajout else None)
     pg3.screenshot(path=OUT + "-grist.png")
+
+    def ouvrir_grist(nom, tables, refus, moi):
+        page = b.new_page(viewport={"width": 1280, "height": 900})
+        suivre(page, nom)
+        page.route("https://docs.getgrist.com/grist-plugin-api.js",
+                   lambda r: r.fulfill(status=200, content_type="application/javascript", body=STUB_GRIST))
+        h = ("<!DOCTYPE html><html><body style='margin:0'><script>window.__TABLES__=%s;window.__REFUS__=%s;window.__MOI__=%s;</script>"
+             "<iframe id='w' src='/suivi-projets/' style='width:1260px;height:880px;border:0'></iframe></body></html>") % (
+            json.dumps(tables), json.dumps(refus), json.dumps(moi))
+        page.route(BASE + "/hote-" + nom + ".html", lambda r: r.fulfill(status=200, content_type="text/html", body=h))
+        page.goto(BASE + "/hote-" + nom + ".html")
+        page.wait_for_timeout(1500)
+        return page, page.frame_locator("#w")
+
+    import copy
+    # Nouvel agent : compte créé, redirection vers « Qui êtes-vous ? », rattachement
+    t4 = copy.deepcopy(donnees); t4["Comptes"] = []
+    pg4, fr4 = ouvrir_grist("nouveau", t4, [], "nouveau@exemple.fr")
+    act4 = pg4.evaluate("window.__ACTIONS__ || []")
+    ok("nouvel agent : ligne Comptes créée", any(a[0] == "AddRecord" and a[1] == "Comptes" for a in act4), act4)
+    ok("nouvel agent : redirigé vers « Qui êtes-vous ? »", fr4.locator("h1:has-text('Qui êtes-vous')").count() == 1)
+    pg4.screenshot(path=OUT + "-profil.png", full_page=True)
+    fr4.locator("#pr-choix").select_option("2")
+    fr4.locator("button[data-action='rattacher']").click()
+    pg4.wait_for_timeout(500)
+    act4 = pg4.evaluate("window.__ACTIONS__ || []")
+    ok("nouvel agent : rattachement au profil", any(a[0] == "UpdateRecord" and a[1] == "Comptes" and a[3].get("Profil") == 2 for a in act4))
+    ok("nouvel agent : profil affiché", "Dominique Exemple" in fr4.locator(".sp-nav__profil").inner_text())
+    pg4.close()
+
+    # Nouvel agent qui crée son profil (alerte doublon puis création)
+    t5 = copy.deepcopy(donnees); t5["Comptes"] = []
+    pg5, fr5 = ouvrir_grist("creation", t5, [], "claire@exemple.fr")
+    fr5.locator("#pr-nom").fill("Exemple Camille")
+    fr5.locator("#pr-structure").select_option(index=1)
+    fr5.locator("form[data-form='mon-profil'] button[type='submit']").click()
+    pg5.wait_for_timeout(300)
+    ok("création profil : doublon signalé", fr5.locator(".fr-alert--warning").count() == 1)
+    fr5.locator("#pr-nom").fill("MARTIN Claire")
+    fr5.locator("form[data-form='mon-profil'] button[type='submit']").click()
+    pg5.wait_for_timeout(600)
+    act5 = pg5.evaluate("window.__ACTIONS__ || []")
+    ok("création profil : Personnes puis Comptes",
+       any(a[0] == "AddRecord" and a[1] == "Personnes" and a[3].get("Nom") == "MARTIN Claire" for a in act5)
+       and any(a[0] == "UpdateRecord" and a[1] == "Comptes" and a[3].get("Profil") for a in act5), act5)
+    ok("création profil : confirmation", fr5.locator(".fr-alert--success").count() == 1)
+    pg5.close()
+
+    # Lecteur : Grist refuse la ligne Comptes
+    t6 = copy.deepcopy(donnees); t6["Comptes"] = []
+    pg6, fr6 = ouvrir_grist("lecteur", t6, ["Comptes"], "lecteur@exemple.fr")
+    ok("lecteur : pas de redirection", fr6.locator("h1:has-text('Banque des projets')").count() == 1)
+    ok("lecteur : pas de lien « Mon profil »", fr6.locator(".sp-nav__profil").count() == 0)
+    pg6.frame(url=lambda u: "/suivi-projets/" in u).evaluate("location.hash = '#/nouveau'")
+    pg6.wait_for_timeout(300)
+    ok("lecteur : pas d'ajout de personne", fr6.locator("button[data-action='ouvrir-ajout']").count() == 0)
+    pg6.close()
     b.close()
 
 print("\n".join(resultats))

@@ -258,3 +258,19 @@ body {
 
 .sp-table .sp-badges { margin: 0; }
 .sp-table button.fr-link { text-align: left; }
+
+/* --- Profil et ajout de personnes ----------------------------------------- */
+.sp-nav__profil { margin-left: auto !important; }
+.sp-notice { margin: -0.5rem 0 1.5rem; }
+.sp-notice .fr-container { padding: 0 1rem; max-width: none; }
+.sp-bloc { margin-bottom: 2rem; }
+.sp-form-court { max-width: 36rem; }
+.sp-ligne-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem; }
+.sp-ligne-form .fr-select-group { flex: 1 1 18rem; margin-bottom: 0; }
+.sp-ajout-personne { margin-top: 0.5rem; }
+.sp-nouvelle-personne {
+  margin-top: 0.75rem; padding: 1rem;
+  border-left: 3px solid var(--border-active-blue-france);
+  background: var(--background-alt-grey);
+}
+.sp-nouvelle-personne .fr-input-group, .sp-nouvelle-personne .fr-select-group { margin-bottom: 1rem; max-width: 30rem; }
