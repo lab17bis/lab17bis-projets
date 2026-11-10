@@ -73,6 +73,13 @@
       "Profil": 1
     }
   ],
+  "Parametres": [
+    {
+      "id": 1,
+      "Cle": "Contact_admin",
+      "Valeur": "admin@exemple.fr"
+    }
+  ],
   "Projets": [
     {
       "id": 1,

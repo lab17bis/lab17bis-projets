@@ -39,7 +39,7 @@
   };
 
   var JOURS_ALERTE = 60;
-  var TABLES = ['Structures', 'Personnes', 'Comptes', 'Projets', 'Actions', 'Journal', 'Documents'];
+  var TABLES = ['Structures', 'Personnes', 'Comptes', 'Parametres', 'Projets', 'Actions', 'Journal', 'Documents'];
 
   // ---------------------------------------------------------------------------
   // État de l'application
@@ -64,7 +64,9 @@
     moi: { email: '', compte: null, profil: null, lecture: false },
     accueilVu: false,    // redirection vers « Mon profil » déjà faite
     profilForm: null,    // saisie du formulaire « Mon profil »
-    ajout: null,         // { champ, Nom, Structure } : ajout d'une personne depuis le formulaire projet
+    ajout: null,         // { champ, Nom, Email, Structure } : ajout d'une personne depuis le formulaire projet
+    pasMoi: null,        // projet pour lequel « Ce n'est pas moi » attend confirmation
+    vus: null,           // projets attribués déjà signalés à la personne
     doublon: null        // nom déjà signalé comme proche d'un profil existant
   };
 
@@ -207,6 +209,7 @@
         .map(function (c) { return c.Email; });
       p.Email = p.Email_saisi || (emails.length && emails.every(function (e) { return e === emails[0]; }) ? emails[0] : '');
       p.Compte_lie = !!p.Email;
+      p.Connecte = !!p.Email && data.Comptes.some(function (c) { return c.Email === p.Email; });
     });
   }
 
@@ -216,10 +219,12 @@
 
   function identifierMoi() {
     var m = etat.moi;
+    var avant = m.email;
     var comptes = (data.Comptes || []).filter(function (c) { return emailDe(c); })
       .sort(function (a, b) { return a.id - b.id; });
     m.compte = comptes[0] || null;
     m.email = m.compte ? emailDe(m.compte) : '';
+    if (m.email !== avant) etat.vus = null;
     m.profil = null;
     if (!m.email) return;
     var lie = idx.Personnes[num(m.compte.Profil)];
@@ -231,6 +236,41 @@
   // Clé de comparaison des noms : sans accents, sans ponctuation, mots triés.
   function cleNom(nom) {
     return sansAccent(nom).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  }
+
+  function personneParEmail(email) {
+    email = String(email || '').trim().toLowerCase();
+    if (!email) return null;
+    return data.Personnes.filter(function (p) { return emailDe(p) === email; })[0] || null;
+  }
+
+  function emailValide(email) { return /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(String(email || '').trim()); }
+
+  // « MARTIN Claire » ou « Claire Martin » -> claire.martin@ac-reims.fr (simple suggestion, modifiable).
+  function emailSuggere(nom) {
+    var mots = String(nom || '').trim().split(/\s+/).filter(Boolean);
+    if (mots.length < 2) return '';
+    var majuscules = mots.filter(function (m) { return m.length > 1 && m === m.toUpperCase(); });
+    var famille = majuscules.length && majuscules.length < mots.length ? majuscules : [mots[mots.length - 1]];
+    var prenoms = mots.filter(function (m) { return famille.indexOf(m) === -1; });
+    function net(l) { return sansAccent(l.join('-')).replace(/[^a-z-]/g, ''); }
+    return net(prenoms) + '.' + net(famille) + '@ac-reims.fr';
+  }
+
+  function libellePersonne(x) {
+    var e = emailDe(x);
+    return x.Nom + (e ? ' — ' + e : ' — sans email');
+  }
+
+  function contactAdmin() {
+    var l = (data.Parametres || []).filter(function (r) { return r.Cle === 'Contact_admin'; })[0];
+    return l && emailValide(l.Valeur) ? String(l.Valeur).trim() : '';
+  }
+
+  function lienContact(sujet, texte) {
+    var mail = contactAdmin();
+    if (!mail) return '';
+    return '<a href="mailto:' + esc(mail) + '?subject=' + encodeURIComponent(sujet) + '">' + esc(texte) + '</a>';
   }
 
   function personneProche(nom) {
@@ -371,9 +411,8 @@
       .catch(function () { etat.moi.lecture = true; });
   }
 
-  var REFUS_PERSONNE = "Grist a refusé l'enregistrement. Vous pouvez créer des profils et modifier le vôtre ou ceux que vous avez créés, " +
-    "mais pas un profil déjà rattaché au compte d'une autre personne.";
-  var REFUS_RATTACHEMENT = "Ce profil est déjà rattaché au compte d'une autre personne. Si c'est une erreur, contactez un administrateur du suivi.";
+  var REFUS_PERSONNE = "Grist a refusé l'enregistrement. Une adresse email ne peut servir qu'à un seul profil, " +
+    "et un profil ne peut plus être modifié que par son titulaire dès qu'il s'est connecté.";
 
   function creerMonProfil(nom, structure) {
     etat.alerte = null;
@@ -424,7 +463,14 @@
     else if (r.vue === 'pilotage') html = vuePilotage();
     else if (r.vue === 'profil') html = vueProfil();
     else html = vueBanque();
-    app.innerHTML = html;
+    app.innerHTML = html + piedContact(r);
+  }
+
+  function piedContact(r) {
+    var p = r.vue === 'fiche' || (r.vue === 'form' && r.id) ? idx.Projets[r.id] : null;
+    var lien = lienContact('Suivi des projets – signalement' + (p ? ' – ' + (p.Titre || 'projet ' + p.id) : ''),
+      "Contacter l'administrateur du suivi");
+    return lien ? '<p class="sp-contact fr-text--sm">Une erreur, une personne désignée par erreur, une question ? ' + lien + '</p>' : '';
   }
 
   function blocAlerte() {
@@ -592,8 +638,57 @@
       info('Avancement', p.Avancement !== null && p.Avancement !== undefined ? esc(p.Avancement + ' % des actions faites') : '') +
       info('Dernière activité', esc(dateHeureTexte(p.Derniere_activite))) +
       info('Thématiques', themes ? '<ul class="fr-tags-group">' + themes + '</ul>' : '') +
-      '</dl>';
+      '</dl>' + blocPasMoi(p);
     return html;
+  }
+
+  // « Ce n'est pas moi » : pour une personne désignée par erreur (souvent une faute dans l'email).
+  function blocPasMoi(p) {
+    var moi = etat.moi.profil;
+    if (!moi) return '';
+    var porteurs = liste(p.Porteurs).map(num), equipe = liste(p.Equipe).map(num);
+    var estPorteur = porteurs.indexOf(moi) !== -1;
+    if (!estPorteur && equipe.indexOf(moi) === -1) return '';
+    if (etat.pasMoi !== p.id) {
+      return '<p class="fr-text--sm sp-pas-moi">Vous figurez dans ce projet (' + esc(monRole(p)) + '). Ce n\'est pas vous ? ' +
+        '<button type="button" class="fr-link fr-text--sm" data-action="pas-moi" data-id="' + p.id + '">Ce n\'est pas moi</button></p>';
+    }
+    var seul = estPorteur && porteurs.length === 1;
+    var texte = estPorteur && !seul
+      ? 'Vous serez retiré(e) des porteurs et de l\'équipe. Un message sera laissé au journal du projet.'
+      : 'Un message sera laissé au journal pour que ' + (seul ? 'l\'administrateur' : 'un porteur') + ' vous retire du projet.';
+    return '<div class="fr-alert fr-alert--warning sp-alerte"><h3 class="fr-alert__title">Vous n\'êtes pas concerné(e) par ce projet ?</h3>' +
+      '<p>' + texte + '</p><ul class="fr-btns-group fr-btns-group--inline-sm fr-btns-group--sm fr-mt-1w">' +
+      '<li><button class="fr-btn fr-btn--sm" data-action="confirmer-pas-moi" data-id="' + p.id + '">Confirmer</button></li>' +
+      '<li><button class="fr-btn fr-btn--sm fr-btn--tertiary" data-action="annuler-pas-moi">Annuler</button></li></ul></div>';
+  }
+
+  function pasMoi(id) {
+    var p = idx.Projets[id];
+    var moi = etat.moi.profil;
+    if (!p || !moi) return;
+    var nom = nomPersonne(moi);
+    var porteurs = liste(p.Porteurs).map(num);
+    var retrait = porteurs.indexOf(moi) !== -1 && porteurs.length > 1;
+    var message = retrait
+      ? nom + ' s\'est retiré(e) du projet : désigné(e) par erreur.'
+      : nom + ' signale avoir été désigné(e) par erreur dans ce projet. Merci de le/la retirer de la fiche.';
+    etat.pasMoi = null;
+    etat.alerte = null;
+    // Le message d'abord : une fois retirée, la personne n'a plus le droit d'écrire au journal.
+    ecrire([['AddRecord', 'Journal', null, { Projet: id, Type: 'Information', Message: message }]])
+      .then(function () {
+        if (!retrait) return null;
+        var sans = function (ids) { return versListe(liste(ids).map(num).filter(function (x) { return x !== moi; })); };
+        return ecrire([['UpdateRecord', 'Projets', id, { Porteurs: sans(p.Porteurs), Equipe: sans(p.Equipe) }]]);
+      })
+      .then(function () { return DEMO ? null : charger(); })
+      .then(function () {
+        etat.alerte = { type: 'success', texte: retrait ? 'Vous avez été retiré(e) du projet.' :
+          'Votre signalement est inscrit au journal du projet.' + (contactAdmin() ? ' Vous pouvez aussi écrire à ' + contactAdmin() + '.' : '') };
+        if (!idx.Projets[id]) location.hash = '#/'; else rendre();
+      })
+      .catch(function (err) { etat.alerte = { type: 'error', texte: messageErreur(err) }; rendre(); });
   }
 
   function optionsPersonnes(valeur, projet) {
@@ -720,7 +815,44 @@
     return '<nav class="sp-nav" aria-label="Vues du suivi"><ul>' + liens.map(function (l) {
       return '<li' + (l[0] === 'profil' ? ' class="sp-nav__profil"' : '') + '><a href="' + l[1] + '"' +
         (l[0] === active ? ' aria-current="page"' : '') + '>' + esc(l[2]) + '</a></li>';
-    }).join('') + '</ul></nav>' + (active === 'profil' ? '' : blocProfilManquant());
+    }).join('') + '</ul></nav>' + (active === 'profil' ? '' : blocProfilManquant()) + (active === 'banque' ? blocAttributions() : '');
+  }
+
+  // Projets où la personne connectée a été désignée et qu'on ne lui a pas encore signalés.
+  function cleVus() { return 'sp-vus:' + etat.moi.email; }
+  function projetsVus() {
+    if (etat.vus) return etat.vus;
+    var v = [];
+    try { v = JSON.parse(localStorage.getItem(cleVus()) || '[]'); } catch (e) { v = []; }
+    etat.vus = Array.isArray(v) ? v : [];
+    return etat.vus;
+  }
+  function mesProjets() {
+    var moi = etat.moi.profil;
+    if (!moi) return [];
+    return data.Projets.filter(function (p) {
+      return !p.Archive && (liste(p.Porteurs).map(num).indexOf(moi) !== -1 || liste(p.Equipe).map(num).indexOf(moi) !== -1); });
+  }
+  function blocAttributions() {
+    if (!etat.moi.profil) return '';
+    var vus = projetsVus();
+    var nouveaux = mesProjets().filter(function (p) { return vus.indexOf(p.id) === -1; });
+    if (!nouveaux.length) return '';
+    return '<div class="fr-alert fr-alert--info sp-alerte"><h2 class="fr-alert__title">Vous avez été désigné(e) dans ' +
+      (nouveaux.length > 1 ? nouveaux.length + ' projets' : 'un projet') + '</h2><ul>' +
+      nouveaux.map(function (p) { return '<li><a href="#/projet/' + p.id + '">' + esc(p.Titre || 'Projet sans titre') + '</a> – ' + esc(monRole(p)) + '</li>'; }).join('') +
+      '</ul><p>Si ce n\'est pas vous, ouvrez le projet et cliquez sur « Ce n\'est pas moi ».</p>' +
+      '<button class="fr-btn fr-btn--sm fr-btn--secondary fr-mt-1w" data-action="vu-attributions">Compris</button></div>';
+  }
+  function marquerVu(id) {
+    if (!etat.moi.email || !id) return;
+    var vus = projetsVus();
+    if (vus.indexOf(id) === -1) vus.push(id);
+    try { localStorage.setItem(cleVus(), JSON.stringify(vus)); } catch (e) { /* stockage indisponible */ }
+  }
+
+  function monRole(p) {
+    return liste(p.Porteurs).map(num).indexOf(etat.moi.profil) !== -1 ? 'porteur' : 'équipe projet';
   }
 
   function profilManquant() { return !!(etat.moi.email && !etat.moi.profil && !etat.moi.lecture); }
@@ -747,34 +879,28 @@
       var moi = idx.Personnes[m.profil];
       var f = etat.profilForm || (etat.profilForm = { Nom: moi.Nom || '', Structure: num(moi.Structure) || '' });
       return html + '<h1 class="fr-h3">Mon profil</h1>' +
-        '<p>Ce profil est rattaché à votre compte Grist. Vos collègues le choisissent pour vous désigner porteur ou membre d\'une équipe : ' +
+        '<p>Ce profil est lié à votre adresse <strong>' + esc(m.email) + '</strong>. Vos collègues le choisissent pour vous désigner porteur ou membre d\'une équipe : ' +
         'vous obtenez alors les droits correspondants sur le projet.</p>' +
         '<form novalidate data-form="mon-profil" class="sp-form-court">' +
         champProfil('pr-nom', 'Nom', 'Nom et prénom', 'Écrivez votre nom de famille en majuscules, par exemple : MARTIN Claire.', f.Nom) +
         champSelect('pr-structure', 'Structure de rattachement', f.Structure, structures, 'data-profil="Structure"', 'Choisir une structure') +
         '<button class="fr-btn" type="submit">Enregistrer</button></form>';
     }
-    var g = etat.profilForm || (etat.profilForm = { Nom: '', Structure: '', Choix: '' });
-    var libres = data.Personnes.filter(function (p) { return !p.Compte_lie; })
-      .sort(function (a, b) { return String(a.Nom).localeCompare(String(b.Nom), 'fr'); });
+    var g = etat.profilForm || (etat.profilForm = { Nom: '', Structure: '' });
     html += '<h1 class="fr-h3">Qui êtes-vous ?</h1>' +
-      '<p>Indiquez votre nom une seule fois. Grist rattache ce profil à votre compte : personne d\'autre ne peut l\'utiliser à votre place.</p>';
-    if (libres.length) {
-      html += '<section class="sp-bloc"><h2 class="fr-h5">Un collègue vous a déjà ajouté ?</h2>' +
-        '<p class="fr-hint-text">Ces profils ont été créés par des collègues et ne sont rattachés à aucun compte. Choisissez le vôtre seulement s\'il s\'agit bien de vous.</p>' +
-        '<div class="sp-ligne-form">' +
-        champSelect('pr-choix', 'Mon nom dans l\'annuaire', g.Choix,
-          libres.map(function (p) { return { v: p.id, t: p.Nom + (libelleStructure(p.Structure) ? ' (' + libelleStructure(p.Structure) + ')' : '') }; }),
-          'data-profil="Choix"', 'Choisir') +
-        '<button class="fr-btn fr-btn--secondary" type="button" data-action="rattacher">C\'est moi</button></div></section>';
-    }
-    html += '<section class="sp-bloc"><h2 class="fr-h5">' + (libres.length ? 'Sinon, créez votre profil' : 'Créez votre profil') + '</h2>' +
+      '<p>Indiquez votre nom une seule fois. Votre profil est lié à l\'adresse de votre compte Grist, <strong>' + esc(m.email) + '</strong> : ' +
+      'c\'est elle qui vous donne vos droits sur les projets.</p>';
+    html += '<section class="sp-bloc"><h2 class="fr-h5">Créez votre profil</h2>' +
       '<form novalidate data-form="mon-profil" class="sp-form-court">' +
       champProfil('pr-nom', 'Nom', 'Nom et prénom', 'Écrivez votre nom de famille en majuscules, par exemple : MARTIN Claire.', g.Nom) +
       champSelect('pr-structure', 'Structure de rattachement', g.Structure, structures, 'data-profil="Structure"', 'Choisir une structure') +
       '<ul class="fr-btns-group fr-btns-group--inline-md"><li><button class="fr-btn" type="submit">Créer mon profil</button></li>' +
       '<li><a class="fr-btn fr-btn--tertiary" href="#/">Plus tard</a></li></ul></form></section>';
     return html;
+  }
+
+  function lienContactTexte() {
+    return contactAdmin() ? 'écrivez à ' + contactAdmin() : 'contactez un administrateur du suivi';
   }
 
   function champProfil(id, champ, libelle, aide, valeur) {
@@ -802,8 +928,8 @@
     if (proche && etat.doublon !== cleNom(nom)) {
       etat.doublon = cleNom(nom);
       etat.alerte = { type: 'warning', texte: 'Un profil « ' + proche.Nom + ' » existe déjà' +
-        (proche.Compte_lie ? ' et il est rattaché à un compte.' : '. Si c\'est vous, choisissez-le dans la liste « Un collègue vous a déjà ajouté ? ».') +
-        ' S\'il s\'agit d\'une autre personne, cliquez à nouveau sur « Créer mon profil ».' };
+        (emailDe(proche) ? ' (' + emailDe(proche) + ')' : '') + '. Si c\'est vous avec une autre adresse, ' +
+        lienContactTexte() + '. S\'il s\'agit d\'une autre personne, cliquez à nouveau sur « Créer mon profil ».' };
       rendre();
       return;
     }
@@ -1093,7 +1219,13 @@
       (puces ? '<ul class="sp-puces">' + puces + '</ul>' : '') +
       '<select class="fr-select" id="' + id + '" data-ajout-multiple="' + champ + '"><option value="">Ajouter…</option>' +
       restants.map(function (o) { return '<option value="' + o.v + '">' + esc(o.t) + '</option>'; }).join('') +
-      '</select>' + (nomDe === nomPersonne ? blocAjoutPersonne(champ) : '') + '</div>';
+      '</select>' + (nomDe === nomPuce ? blocAjoutPersonne(champ) : '') + '</div>';
+  }
+
+  function nomPuce(id) {
+    var x = idx.Personnes[num(id)];
+    if (!x) return '';
+    return x.Nom + (!emailDe(x) ? ' (sans email)' : (x.Connecte === false ? ' (pas encore connecté)' : ''));
   }
 
   // Ajout d'une personne absente de l'annuaire, sans quitter le formulaire projet.
@@ -1106,14 +1238,20 @@
     }
     var structures = structuresTriees().map(function (s) { return { v: s.id, t: s.Chemin }; });
     var proche = a.proche ? idx.Personnes[a.proche] : null;
+    var memeEmail = a.memeEmail ? idx.Personnes[a.memeEmail] : null;
     return '<div class="sp-nouvelle-personne" role="group" aria-label="Nouvelle personne">' +
-      '<p class="fr-text--sm fr-mb-1w">Elle pourra se rattacher à ce profil à sa première connexion. Ses droits sur le projet ne s\'activent qu\'à ce moment-là.</p>' +
+      '<p class="fr-text--sm fr-mb-1w">C\'est l\'adresse email qui donne les droits : la personne sera reconnue à sa première connexion avec cette adresse.</p>' +
       '<div class="fr-input-group"><label class="fr-label" for="aj-nom-' + champ + '">Nom et prénom' +
       '<span class="fr-hint-text">Par exemple : MARTIN Claire.</span></label>' +
       '<input class="fr-input" id="aj-nom-' + champ + '" data-ajout="Nom" value="' + esc(a.Nom) + '"></div>' +
+      '<div class="fr-input-group"><label class="fr-label" for="aj-email-' + champ + '">Adresse email professionnelle' +
+      '<span class="fr-hint-text">Proposée à partir du nom : vérifiez-la, surtout pour les homonymes et les partenaires.</span></label>' +
+      '<input class="fr-input" type="email" id="aj-email-' + champ + '" data-ajout="Email" value="' + esc(a.Email) + '"></div>' +
       champSelect('aj-structure-' + champ, 'Structure', a.Structure, structures, 'data-ajout="Structure"', 'Je ne sais pas') +
-      (proche ? '<div class="fr-alert fr-alert--warning fr-alert--sm sp-alerte"><p>« ' + esc(proche.Nom) + ' »' +
-        (libelleStructure(proche.Structure) ? ' (' + esc(libelleStructure(proche.Structure)) + ')' : '') +
+      (memeEmail ? '<div class="fr-alert fr-alert--warning fr-alert--sm sp-alerte"><p>Cette adresse est déjà celle de « ' + esc(memeEmail.Nom) + ' ». ' +
+        '<button type="button" class="fr-link" data-action="choisir-proche" data-champ="' + champ + '" data-id="' + memeEmail.id + '">Choisir cette personne</button></p></div>' : '') +
+      (proche && !memeEmail ? '<div class="fr-alert fr-alert--warning fr-alert--sm sp-alerte"><p>« ' + esc(proche.Nom) + ' »' +
+        (emailDe(proche) ? ' (' + esc(emailDe(proche)) + ')' : '') +
         ' est déjà dans l\'annuaire. <button type="button" class="fr-link" data-action="choisir-proche" data-champ="' + champ + '" data-id="' + proche.id + '">Choisir cette personne</button>' +
         ' ou cliquez à nouveau sur « Ajouter » s\'il s\'agit de quelqu\'un d\'autre.</p></div>' : '') +
       '<ul class="fr-btns-group fr-btns-group--inline-sm fr-btns-group--sm">' +
@@ -1124,10 +1262,17 @@
   function creerPersonne(champ) {
     var a = etat.ajout;
     var nom = String(a.Nom || '').trim();
-    if (!nom) { etat.alerte = { type: 'error', texte: 'Indiquez le nom de la personne à ajouter.' }; rendre(); return; }
+    var email = String(a.Email || '').trim().toLowerCase();
+    if (!nom || !emailValide(email)) {
+      etat.alerte = { type: 'error', texte: 'Indiquez le nom et une adresse email valide de la personne à ajouter.' };
+      rendre(); return;
+    }
+    etat.alerte = null;
+    var meme = personneParEmail(email);
+    if (meme) { a.memeEmail = meme.id; rendre(); return; }
     var proche = personneProche(nom);
-    if (proche && a.proche !== proche.id) { a.proche = proche.id; etat.alerte = null; rendre(); return; }
-    executer([['AddRecord', 'Personnes', null, { Nom: nom, Structure: num(a.Structure) }]], '« ' + nom + ' » ajouté à l\'annuaire.', function (res) {
+    if (proche && a.proche !== proche.id) { a.proche = proche.id; rendre(); return; }
+    executer([['AddRecord', 'Personnes', null, { Nom: nom, Email_saisi: email, Structure: num(a.Structure) }]], '« ' + nom + ' » ajouté à l\'annuaire.', function (res) {
       var id = res && res.retValues && res.retValues[0];
       if (id && etat.form && etat.form[champ].indexOf(id) === -1) etat.form[champ].push(id);
       etat.ajout = null;
@@ -1141,7 +1286,7 @@
     }
     initialiserFormulaire(id);
     var f = etat.form;
-    var personnes = personnesTriees().map(function (x) { return { v: x.id, t: x.Nom }; });
+    var personnes = personnesTriees().map(function (x) { return { v: x.id, t: libellePersonne(x) }; });
     var structures = structuresTriees().map(function (s) { return { v: s.id, t: s.Chemin }; });
     var retour = id ? '#/projet/' + id : '#/';
 
@@ -1161,9 +1306,9 @@
 
       '<fieldset class="fr-fieldset"><legend class="fr-fieldset__legend fr-h5">Les personnes</legend>' +
       '<div class="fr-fieldset__element">' + selecteurMultiple('p-porteurs', 'Porteurs', 'Porteurs du projet *',
-        'Les porteurs peuvent modifier toute la fiche.', personnes, nomPersonne) + '</div>' +
+        'Les porteurs peuvent modifier toute la fiche.', personnes, nomPuce) + '</div>' +
       '<div class="fr-fieldset__element">' + selecteurMultiple('p-equipe', 'Equipe', 'Équipe projet',
-        "L'équipe peut compléter le plan d'action, le journal et les documents.", personnes, nomPersonne) + '</div>' +
+        "L'équipe peut compléter le plan d'action, le journal et les documents.", personnes, nomPuce) + '</div>' +
       '<div class="fr-fieldset__element">' + selecteurMultiple('p-associees', 'Structures_associees', 'Structures associées', '', structures,
         function (v) { return cheminDe(v); }) + '</div>' +
       '</fieldset>' +
@@ -1226,6 +1371,7 @@
     var action = id ? ['UpdateRecord', 'Projets', id, champs] : ['AddRecord', 'Projets', null, champs];
     executer([action], id ? 'Fiche enregistrée.' : 'Projet déclaré.', function (res) {
       var nouvelId = id || (res && res.retValues && res.retValues[0]);
+      marquerVu(nouvelId);
       etat.form = null; etat.formCle = null; etat.onglet = 'presentation';
       location.hash = nouvelId ? '#/projet/' + nouvelId : '#/';
     });
@@ -1259,7 +1405,8 @@
       deplacer(el.getAttribute('data-table'), num(el.getAttribute('data-id')), el.getAttribute('data-champ'), el.getAttribute('data-valeur'));
     }
     else if (a === 'ouvrir-ajout') {
-      etat.ajout = { champ: el.getAttribute('data-champ'), Nom: '', Structure: '', proche: null }; etat.alerte = null; rendre();
+      etat.ajout = { champ: el.getAttribute('data-champ'), Nom: '', Email: '', Structure: '', proche: null, memeEmail: null, emailAuto: true };
+      etat.alerte = null; rendre();
       var champNom = document.getElementById('aj-nom-' + etat.ajout.champ);
       if (champNom) champNom.focus();
     }
@@ -1271,13 +1418,15 @@
       if (etat.form && etat.form[ch].indexOf(pid) === -1) etat.form[ch].push(pid);
       etat.ajout = null; rendre();
     }
-    else if (a === 'rattacher') {
-      var choix = num(etat.profilForm && etat.profilForm.Choix);
-      if (!choix) { etat.alerte = { type: 'error', texte: 'Choisissez votre nom dans la liste.' }; rendre(); return; }
-      executer([['UpdateRecord', 'Comptes', etat.moi.compte.id, { Profil: choix }]], 'Profil rattaché à votre compte.', function () {
-        etat.profilForm = null;
-      }, REFUS_RATTACHEMENT);
+    else if (a === 'vu-attributions') {
+      var vus = projetsVus().concat(mesProjets().map(function (p) { return p.id; }));
+      etat.vus = vus.filter(function (v, i) { return vus.indexOf(v) === i; });
+      try { localStorage.setItem(cleVus(), JSON.stringify(etat.vus)); } catch (err) { /* stockage indisponible */ }
+      rendre();
     }
+    else if (a === 'pas-moi') { etat.pasMoi = num(el.getAttribute('data-id')); rendre(); }
+    else if (a === 'annuler-pas-moi') { etat.pasMoi = null; rendre(); }
+    else if (a === 'confirmer-pas-moi') { pasMoi(num(el.getAttribute('data-id'))); }
     else if (a === 'filtrer-structure') {
       etat.pilotage.structure = el.getAttribute('data-id'); rendre(); window.scrollTo(0, 0);
     }
@@ -1346,8 +1495,17 @@
       brouillon(el.getAttribute('data-brouillon'))[el.getAttribute('data-champ')] = el.value;
     }
     if (el.hasAttribute('data-ajout') && etat.ajout) {
-      etat.ajout[el.getAttribute('data-ajout')] = el.value;
-      if (el.getAttribute('data-ajout') === 'Nom') etat.ajout.proche = null;
+      var cleA = el.getAttribute('data-ajout');
+      etat.ajout[cleA] = el.value;
+      if (cleA === 'Nom') {
+        etat.ajout.proche = null;
+        if (etat.ajout.emailAuto) {
+          etat.ajout.Email = emailSuggere(el.value);
+          var champEmail = document.getElementById('aj-email-' + etat.ajout.champ);
+          if (champEmail) champEmail.value = etat.ajout.Email;
+        }
+      }
+      if (cleA === 'Email') { etat.ajout.emailAuto = false; etat.ajout.memeEmail = null; }
     }
     if (el.hasAttribute('data-profil') && etat.profilForm) etat.profilForm[el.getAttribute('data-profil')] = el.value;
   });
@@ -1419,7 +1577,7 @@
 
   var ficheCourante = null;
   window.addEventListener('hashchange', function () {
-    etat.alerte = null; etat.suppression = null; etat.ajout = null; etat.doublon = null;
+    etat.alerte = null; etat.suppression = null; etat.ajout = null; etat.doublon = null; etat.pasMoi = null;
     var r = route();
     if (r.vue !== 'profil') etat.profilForm = null;
     if (r.vue === 'fiche' && r.id !== ficheCourante) { etat.onglet = 'presentation'; ficheCourante = r.id; }

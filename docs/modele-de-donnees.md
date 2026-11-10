@@ -6,6 +6,7 @@ Le widget s'appuie sur un document Grist qui contient les tables suivantes.
 |---|---|
 | `Structures` | Arborescence des sites, directions, divisions, bureaux et services. |
 | `Personnes` | Annuaire : nom, structure de rattachement. L'email est calculé : saisi par un administrateur (`Email_saisi`) ou repris du compte rattaché. |
+| `Parametres` | Réglages modifiables par l'administrateur : `Contact_admin`. |
 | `Comptes` | Une ligne par personne qui a ouvert le suivi. Grist y inscrit lui-même l'email du compte connecté. `Profil` relie le compte à sa ligne de l'annuaire. |
 | `Projets` | Fiche projet : structure porteuse, porteurs, équipe, mission confiée, phase, état, visibilité, échéance. |
 | `Actions` | Plan d'action du projet : intitulé, responsable, début, fin, état. Sert au kanban, à la liste et au Gantt. |
@@ -26,13 +27,17 @@ Le widget s'appuie sur un document Grist qui contient les tables suivantes.
 | Éditeur (contributeur) | Consulte les projets, en déclare. Modifie les projets dont il est porteur ou créateur. Contribue au plan d'action, au journal et aux documents des projets dont il est membre de l'équipe. |
 | Lecteur | Consultation. |
 
-## Annuaire ouvert
+## Annuaire ouvert : l'email fait foi
 
-- À la première ouverture, le widget crée la ligne `Comptes` de la personne connectée, puis lui propose « Qui êtes-vous ? ».
-- Elle crée son profil, ou se rattache à un profil qu'un collègue a créé pour elle et qui n'est lié à aucun compte.
-- Dans « Porteurs » et « Équipe projet », on peut ajouter une personne absente de l'annuaire. Ses droits sur le projet s'activent quand elle se rattache à ce profil.
-- Personne ne saisit d'email à la main, sauf un administrateur. Un profil déjà lié à un compte ne peut pas être repris par quelqu'un d'autre.
-- Chacun ne voit que son propre email ; les administrateurs voient tous les emails de l'annuaire.
+- À la première ouverture, le widget crée la ligne `Comptes` de la personne connectée : Grist y inscrit l'email du compte, en minuscules.
+- Une personne déjà présente dans l'annuaire avec cet email est reconnue automatiquement. Sinon, elle crée son profil (« Qui êtes-vous ? »).
+- Pour ajouter un collègue, on saisit son nom et son email professionnel (proposé à partir du nom). Une adresse ne peut servir qu'à un seul profil.
+- Le créateur peut corriger le profil tant que la personne ne s'est pas connectée ; ensuite, seul son titulaire (et un administrateur) le modifie.
+- Les emails sont visibles par toutes les personnes qui ont accès au suivi.
+- « Ce n'est pas moi » sur une fiche : un porteur se retire (s'il reste un autre porteur) ; un membre de l'équipe laisse un signalement au journal.
+- La table `Parametres` contient l'adresse de contact de l'administrateur (`Contact_admin`), affichée en bas du widget.
+- La page Grist « Profils à vérifier » liste les profils sans email, hors académie, en double ou jamais connectés depuis 30 jours.
+- Les règles d'accès comparent les emails en minuscules des deux côtés (`user.Email.lower()`).
 
 Un projet **restreint** n'est visible que par ses porteurs, son équipe, la personne qui a confié la mission et les administrateurs.
 

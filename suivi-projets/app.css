@@ -274,3 +274,6 @@ body {
   background: var(--background-alt-grey);
 }
 .sp-nouvelle-personne .fr-input-group, .sp-nouvelle-personne .fr-select-group { margin-bottom: 1rem; max-width: 30rem; }
+.sp-contact { margin: 2.5rem 0 0; padding-top: 1rem; border-top: 1px solid var(--border-default-grey); color: var(--text-mention-grey); }
+.sp-pas-moi { margin-top: 1.5rem; color: var(--text-mention-grey); }
+.sp-pas-moi .fr-link { vertical-align: baseline; }

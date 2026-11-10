@@ -103,6 +103,11 @@ with sync_playwright() as p:
     ok("banque : navigation avec « Mon profil »", pg.locator(".sp-nav a").count() == 3
        and "Camille Exemple" in pg.locator(".sp-nav__profil").inner_text())
     ok("banque : cartes", pg.locator(".fr-card").count() >= 3, pg.locator(".fr-card").count())
+    ok("contact : lien vers l'administrateur", pg.locator(".sp-contact a[href^='mailto:admin@exemple.fr']").count() == 1)
+    ok("bandeau : projets attribués", "2 projets" in pg.locator(".fr-alert--info").inner_text())
+    pg.click("button[data-action='vu-attributions']")
+    pg.wait_for_timeout(100)
+    ok("bandeau : masqué après « Compris »", pg.locator("button[data-action='vu-attributions']").count() == 0)
 
     # Fiche du projet 1, plan d'action
     pg.goto(BASE + "/suivi-projets/#/projet/1")
@@ -179,12 +184,21 @@ with sync_playwright() as p:
     pg.goto(BASE + "/suivi-projets/#/nouveau")
     pg.wait_for_timeout(300)
     ok("déclaration : je suis porteur par défaut", pg.locator("#p-porteurs").locator("xpath=..").locator(".fr-tag").count() == 1)
+    ok("déclaration : email (ou son absence) dans la liste", "— sans email" in pg.locator("#p-porteurs").inner_text())
+    pg.click("button[data-action='ouvrir-ajout'][data-champ='Porteurs']")
+    pg.fill("#aj-nom-Porteurs", "Test Doublon")
+    pg.fill("#aj-email-Porteurs", "vous@exemple.fr")
+    pg.click("button[data-action='creer-personne'][data-champ='Porteurs']")
+    pg.wait_for_timeout(200)
+    ok("ajout personne : email déjà utilisé signalé", "déjà celle de" in pg.locator(".sp-nouvelle-personne").inner_text())
+    pg.click("button[data-action='fermer-ajout']")
     pg.click("button[data-action='ouvrir-ajout'][data-champ='Porteurs']")
     pg.fill("#aj-nom-Porteurs", "EXEMPLE Camille")
     pg.click("button[data-action='creer-personne'][data-champ='Porteurs']")
     pg.wait_for_timeout(200)
     ok("ajout personne : doublon signalé", pg.locator(".sp-nouvelle-personne .fr-alert--warning").count() == 1)
     pg.fill("#aj-nom-Porteurs", "NOUVELLE Personne")
+    ok("ajout personne : email proposé", pg.input_value("#aj-email-Porteurs") == "personne.nouvelle@ac-reims.fr", pg.input_value("#aj-email-Porteurs"))
     pg.click("button[data-action='creer-personne'][data-champ='Porteurs']")
     pg.wait_for_timeout(300)
     ok("ajout personne : créée et ajoutée aux porteurs",
@@ -203,6 +217,23 @@ with sync_playwright() as p:
     pg.wait_for_timeout(400)
     ok("déclaration : redirige vers la fiche", "#/projet/" in pg.url, pg.url)
     ok("déclaration : titre affiché", pg.locator("h1").inner_text() == "Projet de test")
+
+    # « Ce n'est pas moi » : membre de l'équipe (signalement) puis porteur (retrait)
+    pg.goto(BASE + "/suivi-projets/#/projet/3")
+    pg.wait_for_timeout(300)
+    pg.click("button[data-action='pas-moi']")
+    pg.click("button[data-action='confirmer-pas-moi']")
+    pg.wait_for_timeout(300)
+    ok("pas moi (équipe) : signalement confirmé", "journal" in pg.locator(".fr-alert--success").inner_text())
+    pg.goto(BASE + "/suivi-projets/#/projet/1")
+    pg.wait_for_timeout(300)
+    pg.click("button[data-action='pas-moi']")
+    pg.click("button[data-action='confirmer-pas-moi']")
+    pg.wait_for_timeout(300)
+    ok("pas moi (porteur) : retiré", "retiré" in pg.locator(".fr-alert--success").inner_text()
+       and "Camille" not in pg.locator(".sp-infos").inner_text())
+    pg.locator("label[for='o-journal']").click()
+    ok("pas moi : message au journal", pg.locator(".sp-journal li:has-text('désigné(e) par erreur')").count() == 1)
 
     # Vue d'ensemble
     pg.goto(BASE + "/suivi-projets/#/pilotage")
@@ -312,14 +343,18 @@ with sync_playwright() as p:
     act4 = pg4.evaluate("window.__ACTIONS__ || []")
     ok("nouvel agent : ligne Comptes créée", any(a[0] == "AddRecord" and a[1] == "Comptes" for a in act4), act4)
     ok("nouvel agent : redirigé vers « Qui êtes-vous ? »", fr4.locator("h1:has-text('Qui êtes-vous')").count() == 1)
+    ok("nouvel agent : son adresse affichée", "nouveau@exemple.fr" in fr4.locator("#sp-app").inner_text())
+    ok("nouvel agent : plus de rattachement manuel", fr4.locator("button[data-action='rattacher']").count() == 0)
     pg4.screenshot(path=OUT + "-profil.png", full_page=True)
-    fr4.locator("#pr-choix").select_option("2")
-    fr4.locator("button[data-action='rattacher']").click()
-    pg4.wait_for_timeout(500)
-    act4 = pg4.evaluate("window.__ACTIONS__ || []")
-    ok("nouvel agent : rattachement au profil", any(a[0] == "UpdateRecord" and a[1] == "Comptes" and a[3].get("Profil") == 2 for a in act4))
-    ok("nouvel agent : profil affiché", "Dominique Exemple" in fr4.locator(".sp-nav__profil").inner_text())
     pg4.close()
+
+    # Agent ajouté par un collègue avec son email : reconnu sans rien faire
+    t7 = copy.deepcopy(donnees); t7["Comptes"] = []
+    for x in t7["Personnes"]:
+        if x["id"] == 2: x["Email"] = "dominique@exemple.fr"
+    pg7, fr7 = ouvrir_grist("reconnu", t7, [], "dominique@exemple.fr")
+    ok("agent ajouté par email : reconnu à la connexion", "Dominique Exemple" in fr7.locator(".sp-nav__profil").inner_text())
+    pg7.close()
 
     # Nouvel agent qui crée son profil (alerte doublon puis création)
     t5 = copy.deepcopy(donnees); t5["Comptes"] = []
