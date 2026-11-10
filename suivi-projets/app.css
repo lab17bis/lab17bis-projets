@@ -133,3 +133,128 @@ body {
 .sp-actions-ligne { display: flex; flex-wrap: wrap; gap: .5rem; }
 
 .sp-alerte { margin-bottom: 1.5rem; }
+
+/* Navigation entre vues */
+.sp-nav { margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-default-grey); }
+.sp-nav ul { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 0; padding: 0; list-style: none; }
+.sp-nav li { margin: 0; padding: 0; }
+.sp-nav a {
+  display: inline-block;
+  padding: .5rem 0;
+  font-weight: 500;
+  color: var(--text-mention-grey);
+  background-image: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.sp-nav a:hover { color: var(--text-title-grey); }
+.sp-nav a[aria-current="page"] {
+  color: var(--text-active-blue-france);
+  border-bottom-color: var(--border-active-blue-france);
+}
+
+.sp-mode { margin-bottom: 1rem; }
+
+/* Kanban */
+.sp-kanban {
+  display: grid;
+  grid-template-columns: repeat(var(--sp-colonnes, 4), minmax(9.5rem, 1fr));
+  gap: .75rem;
+  overflow-x: auto;
+  padding-bottom: .5rem;
+}
+.sp-colonne {
+  background: var(--background-alt-grey);
+  padding: .75rem;
+  min-height: 9rem;
+  border: 2px dashed transparent;
+}
+.sp-colonne--survol { border-color: var(--border-active-blue-france); }
+.sp-colonne__titre { font-size: .875rem; margin: 0 0 .75rem; display: flex; justify-content: space-between; }
+.sp-colonne__nombre { color: var(--text-mention-grey); font-weight: 400; }
+.sp-colonne__vide { font-size: .75rem; color: var(--text-mention-grey); text-align: center; margin: 1.5rem 0 0; }
+.sp-ticket {
+  background: var(--background-default-grey);
+  border: 1px solid var(--border-default-grey);
+  padding: .625rem .75rem .25rem;
+  margin-bottom: .5rem;
+  cursor: grab;
+}
+.sp-ticket--glisse { opacity: .5; }
+.sp-ticket p { margin: 0 0 .25rem; }
+.sp-ticket__titre { font-weight: 700; font-size: .875rem; }
+.sp-ticket__meta { font-size: .75rem; color: var(--text-mention-grey); }
+.sp-ticket .sp-badges { margin: .25rem 0; }
+.sp-ticket__boutons { display: flex; justify-content: space-between; gap: .25rem; }
+.sp-ticket__boutons .fr-btn {
+  font-size: 0; padding-left: .25rem; padding-right: .25rem; min-height: 1.75rem;
+}
+.sp-ticket__boutons .fr-btn::before { margin: 0; }
+
+/* Calendrier (Gantt) */
+.sp-gantt { min-width: 40rem; }
+.sp-gantt__ligne {
+  display: grid;
+  grid-template-columns: minmax(11rem, 16rem) 1fr;
+  border-bottom: 1px solid var(--border-default-grey);
+}
+.sp-gantt__entete { border-bottom-width: 2px; }
+.sp-gantt__libelle { padding: .5rem .75rem .5rem 0; font-size: .875rem; }
+.sp-gantt__libelle a { font-weight: 500; }
+.sp-gantt__meta { display: block; font-size: .75rem; color: var(--text-mention-grey); }
+.sp-gantt__piste { position: relative; min-height: 2.75rem; background: var(--background-alt-grey); }
+.sp-gantt__entete .sp-gantt__piste { min-height: 1.75rem; background: none; }
+.sp-gantt__mois {
+  position: absolute; top: 0; bottom: 0;
+  border-left: 1px solid var(--border-default-grey);
+  padding-left: .25rem;
+  font-size: .75rem; color: var(--text-mention-grey); white-space: nowrap;
+}
+.sp-gantt__jour, .sp-gantt__jour-legende {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: var(--border-plain-error);
+  z-index: 1;
+}
+.sp-gantt__jour-legende { position: static; display: inline-block; height: .875rem; vertical-align: middle; }
+.sp-gantt__barre {
+  position: absolute; top: 50%; height: 1rem; transform: translateY(-50%);
+  border-radius: .25rem;
+  background: var(--background-action-high-blue-france);
+  z-index: 2;
+}
+.sp-gantt__jalon {
+  position: absolute; top: 50%; width: .875rem; height: .875rem;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--background-action-high-blue-france);
+  z-index: 2;
+}
+.sp-barre--afaire { background: var(--background-action-low-blue-france); outline: 1px solid var(--border-action-high-blue-france); }
+.sp-barre--encours { background: var(--background-action-high-blue-france); }
+.sp-barre--fait { background: var(--background-flat-success); }
+.sp-barre--abandon { background: var(--background-disabled-grey); }
+.sp-barre--pause { background: var(--background-flat-warning); }
+.sp-barre--bloque { background: var(--background-flat-error); }
+.sp-gantt__legende { font-size: .75rem; color: var(--text-mention-grey); margin-top: .5rem; }
+
+/* Chiffres clés */
+.sp-chiffres {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+.sp-chiffre {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  background: var(--background-alt-grey);
+  border-left: 4px solid var(--border-action-high-blue-france);
+}
+.sp-chiffre--error { border-left-color: var(--border-plain-error); }
+.sp-chiffre--warning { border-left-color: var(--border-plain-warning); }
+.sp-chiffre__valeur { display: block; font-size: 2rem; font-weight: 700; line-height: 2.5rem; color: var(--text-title-grey); }
+.sp-chiffre__libelle { display: block; font-size: .875rem; color: var(--text-mention-grey); }
+
+.sp-table .sp-badges { margin: 0; }
+.sp-table button.fr-link { text-align: left; }

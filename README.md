@@ -6,7 +6,7 @@ L'interface prend la forme de **widgets personnalisés Grist** au **système de 
 
 ## Ce que contient ce dépôt
 
-- `suivi-projets/` : l'interface (banque des projets, fiche projet, déclaration et modification, plan d'action, journal, documents).
+- `suivi-projets/` : l'interface : banque des projets, fiche projet (plan d'action en liste, kanban ou calendrier, journal, documents), déclaration et modification, vue d'ensemble (chiffres clés, projets à relancer, kanban des phases, calendrier des projets, répartition par structure).
 - `vendor/dsfr/` : feuilles de style, polices et icônes du DSFR (version 1.15.4, licence MIT), embarquées pour ne dépendre d'aucun service externe.
 - `widget-test/` : page de test qui vérifie que l'instance Grist accepte un widget hébergé sur GitHub Pages.
 - `docs/` : modèle de données et règles d'accès attendues.

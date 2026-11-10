@@ -52,6 +52,8 @@
   var etat = {
     filtres: { q: '', structure: '', phase: '', etat: '', archives: false, tri: 'activite' },
     onglet: 'presentation',
+    modePlan: 'liste',   // affichage du plan d'action : liste | kanban | calendrier
+    pilotage: { structure: '', archives: false },
     form: null,          // valeurs du formulaire projet en cours d'édition
     formCle: null,       // route qui a initialisé le formulaire
     brouillons: {},      // saisies des petits formulaires (action, journal, document)
@@ -316,6 +318,7 @@
     var h = (location.hash || '').replace(/^#\/?/, '');
     var m;
     if (h === 'nouveau') return { vue: 'form', id: null };
+    if (h === 'pilotage') return { vue: 'pilotage' };
     if ((m = h.match(/^projet\/(\d+)\/modifier$/))) return { vue: 'form', id: +m[1] };
     if ((m = h.match(/^projet\/(\d+)$/))) return { vue: 'fiche', id: +m[1] };
     return { vue: 'banque' };
@@ -334,6 +337,7 @@
     var html;
     if (r.vue === 'fiche') html = vueFiche(r.id);
     else if (r.vue === 'form') html = vueFormulaire(r.id);
+    else if (r.vue === 'pilotage') html = vuePilotage();
     else html = vueBanque();
     app.innerHTML = html;
   }
@@ -385,7 +389,7 @@
   function vueBanque() {
     var f = etat.filtres;
     var projets = projetsFiltres();
-    var html = blocAlerte();
+    var html = navigation('banque') + blocAlerte();
     html += '<div class="sp-titre-ligne"><div><h1 class="fr-h3">Banque des projets</h1>' +
       '<p class="fr-mb-0">' + projets.length + ' projet' + (projets.length > 1 ? 's' : '') + ' affiché' + (projets.length > 1 ? 's' : '') + '</p></div>' +
       '<button class="fr-btn fr-icon-add-line fr-btn--icon-left" data-action="nouveau">Déclarer un projet</button></div>';
@@ -405,7 +409,10 @@
       '</div>';
 
     if (!projets.length) {
-      html += '<p class="sp-vide">Aucun projet ne correspond à ces critères.</p>';
+      html += data.Projets.length
+        ? '<p class="sp-vide">Aucun projet ne correspond à ces critères.</p>'
+        : '<div class="fr-callout"><h2 class="fr-callout__title fr-h5">Aucun projet déclaré pour l\'instant</h2>' +
+          '<p class="fr-callout__text">La banque se remplit au fil des déclarations. Commencez par « Déclarer un projet ».</p></div>';
       return html;
     }
 
@@ -541,6 +548,20 @@
 
     if (!acts.length) return html + '<p class="sp-vide">Aucune action pour l\'instant.</p>';
 
+    html += selecteurMode('plan', etat.modePlan, [
+      ['liste', 'Liste'], ['kanban', 'Kanban'], ['calendrier', 'Calendrier']
+    ], "Affichage du plan d'action");
+
+    if (etat.modePlan === 'kanban') return html + kanbanActions(acts);
+    if (etat.modePlan === 'calendrier') {
+      return html + gantt(acts.map(function (a) {
+        return {
+          libelle: a.Intitule, meta: nomPersonne(a.Responsable), debut: a.Debut, fin: a.Fin,
+          classe: 'sp-barre--' + classeEtat(a.Etat || 'À faire')
+        };
+      }), "Calendrier du plan d'action");
+    }
+
     var ordre = { 'En cours': 0, 'À faire': 1, 'Fait': 2, 'Abandonné': 3 };
     acts = acts.slice().sort(function (a, c) {
       return (ordre[a.Etat || 'À faire'] - ordre[c.Etat || 'À faire']) || ((a.Fin || 9e12) - (c.Fin || 9e12));
@@ -602,6 +623,253 @@
       html += '<tr><td>' + lien + '</td><td>' + esc(d.Type) + '</td><td>' + boutonSuppression('Documents', d.id) + '</td></tr>';
     });
     return html + '</tbody></table></div>';
+  }
+
+  // --- Composants partagés : navigation, sélecteur de mode, kanban, calendrier --
+
+  function navigation(active) {
+    var liens = [['banque', '#/', 'Banque des projets'], ['pilotage', '#/pilotage', "Vue d'ensemble"]];
+    return '<nav class="sp-nav" aria-label="Vues du suivi"><ul>' + liens.map(function (l) {
+      return '<li><a href="' + l[1] + '"' + (l[0] === active ? ' aria-current="page"' : '') + '>' + esc(l[2]) + '</a></li>';
+    }).join('') + '</ul></nav>';
+  }
+
+  function selecteurMode(nom, valeur, modes, legende) {
+    return '<fieldset class="fr-segmented fr-segmented--sm sp-mode"><legend class="fr-segmented__legend fr-segmented__legend--inline">' +
+      esc(legende) + '</legend><div class="fr-segmented__elements">' + modes.map(function (m) {
+        return '<div class="fr-segmented__element"><input type="radio" name="sp-mode-' + nom + '" id="m-' + nom + '-' + m[0] +
+          '" value="' + m[0] + '" data-mode="' + nom + '"' + (valeur === m[0] ? ' checked' : '') + '>' +
+          '<label class="fr-label" for="m-' + nom + '-' + m[0] + '">' + esc(m[1]) + '</label></div>';
+      }).join('') + '</div></fieldset>';
+  }
+
+  function classeEtat(e) {
+    return ({ 'À faire': 'afaire', 'En cours': 'encours', 'Fait': 'fait', 'Abandonné': 'abandon',
+      'En pause': 'pause', 'Bloqué': 'bloque', 'Terminé': 'fait' })[e] || 'afaire';
+  }
+
+  function periodeTexte(debut, fin) {
+    if (debut && fin) return dateTexte(debut) + ' → ' + dateTexte(fin);
+    if (fin) return "Jusqu'au " + dateTexte(fin);
+    if (debut) return 'À partir du ' + dateTexte(debut);
+    return '';
+  }
+
+  // Colonnes génériques : chaque carte se déplace par glisser-déposer
+  // ou avec les boutons (accessibles au clavier).
+  function kanban(colonnes, cartes, table, champ, rendreCarte) {
+    return '<div class="sp-kanban" style="--sp-colonnes:' + colonnes.length + '">' + colonnes.map(function (col, i) {
+      var items = cartes.filter(function (c) { return c._colonne === col; });
+      return '<section class="sp-colonne" data-drop-table="' + table + '" data-drop-champ="' + champ + '" data-drop-valeur="' + esc(col) + '">' +
+        '<h3 class="sp-colonne__titre">' + esc(col) + ' <span class="sp-colonne__nombre">' + items.length + '</span></h3>' +
+        items.map(function (c) {
+          var prec = i > 0 ? colonnes[i - 1] : null;
+          var suiv = i < colonnes.length - 1 ? colonnes[i + 1] : null;
+          return '<div class="sp-ticket" draggable="true" data-drag="' + table + ':' + c.id + '">' + rendreCarte(c) +
+            '<div class="sp-ticket__boutons">' +
+            (prec ? '<button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary-no-outline fr-icon-arrow-left-s-line" ' +
+              'title="Passer en « ' + esc(prec) + ' »" data-action="deplacer" data-table="' + table + '" data-champ="' + champ +
+              '" data-id="' + c.id + '" data-valeur="' + esc(prec) + '">Vers « ' + esc(prec) + ' »</button>' : '<span></span>') +
+            (suiv ? '<button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary-no-outline fr-icon-arrow-right-s-line" ' +
+              'title="Passer en « ' + esc(suiv) + ' »" data-action="deplacer" data-table="' + table + '" data-champ="' + champ +
+              '" data-id="' + c.id + '" data-valeur="' + esc(suiv) + '">Vers « ' + esc(suiv) + ' »</button>' : '') +
+            '</div></div>';
+        }).join('') +
+        (items.length ? '' : '<p class="sp-colonne__vide">Déposez une carte ici</p>') +
+        '</section>';
+    }).join('') + '</div>';
+  }
+
+  function kanbanActions(acts) {
+    var cartes = acts.map(function (a) { return Object.assign({ _colonne: a.Etat || 'À faire' }, a); });
+    return kanban(ETATS_ACTION, cartes, 'Actions', 'Etat', function (a) {
+      var meta = [nomPersonne(a.Responsable), periodeTexte(a.Debut, a.Fin)].filter(Boolean).join(' · ');
+      return '<p class="sp-ticket__titre">' + esc(a.Intitule) + '</p>' +
+        (meta ? '<p class="sp-ticket__meta">' + esc(meta) + '</p>' : '');
+    });
+  }
+
+  var MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+  // Calendrier (diagramme de Gantt) : items = { libelle, lien?, meta?, debut, fin, classe }
+  function gantt(items, titre) {
+    var dates = [];
+    items.forEach(function (it) { if (it.debut) dates.push(it.debut); if (it.fin) dates.push(it.fin); });
+    var sansDate = items.filter(function (it) { return !it.debut && !it.fin; });
+    if (!dates.length) {
+      return '<p class="sp-vide">Aucune date renseignée : ajoutez un début ou une fin pour afficher le calendrier.</p>';
+    }
+    var aujourdHui = Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) / 1000;
+    var min = Math.min.apply(null, dates.concat([aujourdHui]));
+    var max = Math.max.apply(null, dates.concat([aujourdHui]));
+    var d0 = new Date(min * 1000);
+    var d1 = new Date(max * 1000);
+    var debut = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), 1) / 1000;
+    var fin = Date.UTC(d1.getUTCFullYear(), d1.getUTCMonth() + 1, 1) / 1000;
+    var duree = fin - debut;
+    var pct = function (s) { return (100 * (s - debut) / duree).toFixed(3); };
+
+    var mois = [];
+    var y = d0.getUTCFullYear(), m = d0.getUTCMonth();
+    while (Date.UTC(y, m, 1) / 1000 < fin) {
+      mois.push({ s: Date.UTC(y, m, 1) / 1000, t: MOIS[m] + (m === 0 || !mois.length ? ' ' + y : '') });
+      m++; if (m > 11) { m = 0; y++; }
+    }
+    var pas = mois.length > 18 ? 3 : (mois.length > 9 ? 2 : 1);
+    var graduation = mois.map(function (mo, i) {
+      return '<span class="sp-gantt__mois" style="left:' + pct(mo.s) + '%">' + (i % pas === 0 ? esc(mo.t) : '') + '</span>';
+    }).join('');
+    var repere = '<span class="sp-gantt__jour" style="left:' + pct(aujourdHui) + '%" title="Aujourd\'hui"></span>';
+
+    var lignes = items.filter(function (it) { return it.debut || it.fin; }).sort(function (a, b) {
+      return (a.debut || a.fin) - (b.debut || b.fin);
+    }).map(function (it) {
+      var a = it.debut || it.fin, b = it.fin || it.debut;
+      if (b < a) { var t = a; a = b; b = t; }
+      var jalon = !it.debut || !it.fin;
+      var periode = periodeTexte(it.debut, it.fin);
+      var forme = jalon
+        ? '<span class="sp-gantt__jalon ' + (it.classe || '') + '" style="left:' + pct(a) + '%"></span>'
+        : '<span class="sp-gantt__barre ' + (it.classe || '') + '" style="left:' + pct(a) + '%;width:' +
+          Math.max(0.8, 100 * (b - a + 86400) / duree).toFixed(3) + '%"></span>';
+      var lib = it.lien ? '<a href="' + esc(it.lien) + '">' + esc(it.libelle) + '</a>' : esc(it.libelle);
+      return '<div class="sp-gantt__ligne" role="row">' +
+        '<div class="sp-gantt__libelle" role="rowheader">' + lib +
+        '<span class="sp-gantt__meta">' + esc([it.meta, periode].filter(Boolean).join(' · ')) + '</span></div>' +
+        '<div class="sp-gantt__piste" role="cell" title="' + esc(periode) + '">' + repere + forme +
+        '<span class="fr-sr-only">' + esc(periode) + '</span></div></div>';
+    }).join('');
+
+    return '<div class="sp-defile"><div class="sp-gantt" role="table" aria-label="' + esc(titre) + '">' +
+      '<div class="sp-gantt__ligne sp-gantt__entete" role="row"><div role="columnheader"><span class="fr-sr-only">Élément</span></div>' +
+      '<div class="sp-gantt__piste" role="columnheader">' + graduation + repere + '</div></div>' +
+      lignes + '</div></div>' +
+      '<p class="sp-gantt__legende"><span class="sp-gantt__jour-legende"></span> Aujourd\'hui' +
+      (sansDate.length ? ' · ' + sansDate.length + ' élément' + (sansDate.length > 1 ? 's' : '') + ' sans date non affiché' + (sansDate.length > 1 ? 's' : '') : '') +
+      '</p>';
+  }
+
+  // --- Vue d'ensemble (pilotage) ---------------------------------------------
+
+  function aujourdhuiSec() {
+    var n = new Date();
+    return Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) / 1000;
+  }
+
+  function enRetard(p) { return !p.Archive && p.Echeance && p.Echeance < aujourdhuiSec(); }
+  function endormi(p) { return !p.Archive && p.Jours_sans_activite !== null && p.Jours_sans_activite !== undefined && p.Jours_sans_activite >= JOURS_ALERTE; }
+
+  // Rattache une structure à son niveau « direction » (2e niveau de l'arborescence).
+  function niveauDirection(id) {
+    var chaine = [];
+    var s = idx.Structures[num(id)];
+    var garde = 0;
+    while (s && garde++ < 8) { chaine.unshift(s); s = idx.Structures[num(s.Parent)]; }
+    var cible = chaine[1] || chaine[0];
+    return cible ? cible.id : 0;
+  }
+
+  function signaux(p) {
+    var s = '';
+    if (p.Etat === 'Bloqué') s += '<li>' + badge('Bloqué', 'error') + '</li>';
+    if (endormi(p)) s += '<li>' + badge('Sans activité depuis ' + p.Jours_sans_activite + ' j', 'warning') + '</li>';
+    if (enRetard(p)) s += '<li>' + badge('Échéance dépassée', 'orange-terre-battue') + '</li>';
+    return s ? '<ul class="sp-badges">' + s + '</ul>' : '';
+  }
+
+  function vuePilotage() {
+    var f = etat.pilotage;
+    var structs = f.structure ? descendants(num(f.structure)) : null;
+    var projets = data.Projets.filter(function (p) {
+      if (!f.archives && p.Archive) return false;
+      if (structs && structs.indexOf(num(p.Structure_porteuse)) === -1) return false;
+      return true;
+    });
+    var actifs = projets.filter(function (p) { return !p.Archive; });
+
+    var html = navigation('pilotage') + blocAlerte() +
+      '<div class="sp-titre-ligne"><div><h1 class="fr-h3">Vue d\'ensemble</h1>' +
+      '<p class="fr-mb-0">Où en sont les projets, et lesquels demandent une relance.</p></div></div>' +
+      '<div class="sp-filtres">' +
+      champSelect('pf-structure', 'Structure (et ses services)', f.structure,
+        structuresTriees().map(function (s) { return { v: s.id, t: s.Chemin }; }), 'data-pilotage="structure"', 'Toutes') +
+      '<div class="fr-checkbox-group"><input type="checkbox" id="pf-archives" data-pilotage="archives"' + (f.archives ? ' checked' : '') + '>' +
+      '<label class="fr-label" for="pf-archives">Inclure les projets terminés et archivés</label></div></div>';
+
+    if (!data.Projets.length) {
+      return html + '<div class="fr-callout"><h2 class="fr-callout__title fr-h5">Aucun projet déclaré pour l\'instant</h2>' +
+        '<p class="fr-callout__text">La vue d\'ensemble s\'alimente à partir des projets déclarés dans la banque.</p></div>';
+    }
+
+    var chiffres = [
+      [actifs.length, 'projets en cours de vie', ''],
+      [actifs.filter(function (p) { return p.Etat === 'Bloqué'; }).length, 'projets bloqués', 'error'],
+      [actifs.filter(endormi).length, 'sans activité depuis ' + JOURS_ALERTE + ' jours ou plus', 'warning'],
+      [actifs.filter(enRetard).length, 'à échéance dépassée', 'warning']
+    ];
+    html += '<ul class="sp-chiffres">' + chiffres.map(function (c) {
+      return '<li class="sp-chiffre' + (c[2] && c[0] ? ' sp-chiffre--' + c[2] : '') + '"><span class="sp-chiffre__valeur">' + c[0] +
+        '</span><span class="sp-chiffre__libelle">' + esc(c[1]) + '</span></li>';
+    }).join('') + '</ul>';
+
+    // Projets à relancer
+    var aRelancer = actifs.filter(function (p) { return p.Etat === 'Bloqué' || endormi(p) || enRetard(p); })
+      .sort(function (a, b) { return (b.Jours_sans_activite || 0) - (a.Jours_sans_activite || 0); });
+    html += '<h2 class="fr-h5 fr-mt-4w">Projets à relancer (' + aRelancer.length + ')</h2>';
+    if (!aRelancer.length) {
+      html += '<p class="sp-vide">Aucun projet bloqué, endormi ou en retard.</p>';
+    } else {
+      html += '<div class="sp-defile"><table class="sp-table"><thead><tr><th>Projet</th><th>Structure</th><th>Porteurs</th>' +
+        '<th>Signaux</th><th>Dernière activité</th></tr></thead><tbody>' + aRelancer.map(function (p) {
+          return '<tr><td><a class="fr-link" href="#/projet/' + p.id + '">' + esc(p.Titre || 'Projet sans titre') + '</a></td>' +
+            '<td>' + esc(libelleStructure(p.Structure_porteuse)) + '</td>' +
+            '<td>' + esc(nomsPersonnes(p.Porteurs)) + '</td>' +
+            '<td>' + signaux(p) + '</td>' +
+            '<td>' + esc(dateTexte(p.Derniere_activite)) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+
+    // Projets par phase
+    var colonnes = f.archives ? PHASES : PHASES.filter(function (ph) { return ph !== 'Clos'; });
+    html += '<h2 class="fr-h5 fr-mt-4w">Projets par phase</h2>' +
+      '<p class="fr-hint-text">Déplacer une carte change la phase du projet. Seuls ses porteurs et les administrateurs peuvent le faire.</p>' +
+      kanban(colonnes, projets.map(function (p) { return Object.assign({ _colonne: p.Phase || 'Idée' }, p); }), 'Projets', 'Phase', function (p) {
+        return '<p class="sp-ticket__titre"><a href="#/projet/' + p.id + '">' + esc(p.Titre || 'Projet sans titre') + '</a></p>' +
+          '<p class="sp-ticket__meta">' + esc(libelleStructure(p.Structure_porteuse)) + '</p>' +
+          '<ul class="sp-badges">' + '<li>' + badge(p.Etat, COULEUR_ETAT[p.Etat]) + '</li>' +
+          (p.Visibilite === 'Restreint' ? '<li>' + badge('Restreint', 'orange-terre-battue') + '</li>' : '') + '</ul>';
+      });
+
+    // Calendrier des projets
+    html += '<h2 class="fr-h5 fr-mt-4w">Calendrier des projets</h2>' +
+      gantt(projets.map(function (p) {
+        return {
+          libelle: p.Titre || 'Projet sans titre', lien: '#/projet/' + p.id, meta: libelleStructure(p.Structure_porteuse),
+          debut: p.Date_debut, fin: p.Echeance, classe: 'sp-barre--' + classeEtat(p.Etat)
+        };
+      }), 'Calendrier des projets');
+
+    // Répartition par structure
+    var groupes = {};
+    projets.forEach(function (p) {
+      var k = niveauDirection(p.Structure_porteuse);
+      var g = groupes[k] = groupes[k] || { total: 0, actifs: 0, bloques: 0, relance: 0 };
+      g.total++;
+      if (!p.Archive) g.actifs++;
+      if (!p.Archive && p.Etat === 'Bloqué') g.bloques++;
+      if (endormi(p) || enRetard(p)) g.relance++;
+    });
+    var cles = Object.keys(groupes).sort(function (a, b) { return groupes[b].total - groupes[a].total; });
+    html += '<h2 class="fr-h5 fr-mt-4w">Répartition par structure</h2>' +
+      '<div class="sp-defile"><table class="sp-table"><thead><tr><th>Structure</th><th>Projets</th><th>En cours de vie</th>' +
+      '<th>Bloqués</th><th>À relancer</th></tr></thead><tbody>' + cles.map(function (k) {
+        var g = groupes[k];
+        var nom = num(k) ? cheminDe(k) : 'Structure non renseignée';
+        var lien = num(k) ? '<button type="button" class="fr-link" data-action="filtrer-structure" data-id="' + k + '">' + esc(nom) + '</button>' : esc(nom);
+        return '<tr><td>' + lien + '</td><td>' + g.total + '</td><td>' + g.actifs + '</td><td>' + g.bloques + '</td><td>' + g.relance + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+
+    return html;
   }
 
   // --- Formulaire de déclaration / modification -------------------------------
@@ -773,6 +1041,58 @@
       etat.suppression = null;
       executer([['RemoveRecord', el.getAttribute('data-table'), num(el.getAttribute('data-id'))]], 'Élément supprimé.');
     }
+    else if (a === 'deplacer') {
+      deplacer(el.getAttribute('data-table'), num(el.getAttribute('data-id')), el.getAttribute('data-champ'), el.getAttribute('data-valeur'));
+    }
+    else if (a === 'filtrer-structure') {
+      etat.pilotage.structure = el.getAttribute('data-id'); rendre(); window.scrollTo(0, 0);
+    }
+  });
+
+  // Tables et champs qu'un déplacement de carte a le droit de modifier.
+  var DEPLACEMENTS = { 'Actions': 'Etat', 'Projets': 'Phase' };
+
+  function deplacer(table, id, champ, valeur) {
+    if (DEPLACEMENTS[table] !== champ || !id) return;
+    var ligne = idx[table] && idx[table][id];
+    if (!ligne || ligne[champ] === valeur) return;
+    var champs = {};
+    champs[champ] = valeur;
+    executer([['UpdateRecord', table, id, champs]], (table === 'Projets' ? 'Phase' : 'État') + ' mis à jour : ' + valeur + '.');
+  }
+
+  // Glisser-déposer des cartes de kanban
+  app.addEventListener('dragstart', function (e) {
+    var el = e.target.closest && e.target.closest('[data-drag]');
+    if (!el) return;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', el.getAttribute('data-drag'));
+    el.classList.add('sp-ticket--glisse');
+  });
+  app.addEventListener('dragend', function (e) {
+    var el = e.target.closest && e.target.closest('[data-drag]');
+    if (el) el.classList.remove('sp-ticket--glisse');
+    Array.prototype.forEach.call(app.querySelectorAll('.sp-colonne--survol'), function (c) { c.classList.remove('sp-colonne--survol'); });
+  });
+  app.addEventListener('dragover', function (e) {
+    var col = e.target.closest && e.target.closest('[data-drop-table]');
+    if (!col) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    col.classList.add('sp-colonne--survol');
+  });
+  app.addEventListener('dragleave', function (e) {
+    var col = e.target.closest && e.target.closest('[data-drop-table]');
+    if (col && !col.contains(e.relatedTarget)) col.classList.remove('sp-colonne--survol');
+  });
+  app.addEventListener('drop', function (e) {
+    var col = e.target.closest && e.target.closest('[data-drop-table]');
+    if (!col) return;
+    e.preventDefault();
+    col.classList.remove('sp-colonne--survol');
+    var source = String(e.dataTransfer.getData('text/plain') || '').split(':');
+    if (source[0] !== col.getAttribute('data-drop-table')) return;
+    deplacer(source[0], num(source[1]), col.getAttribute('data-drop-champ'), col.getAttribute('data-drop-valeur'));
   });
 
   app.addEventListener('input', function (e) {
@@ -799,6 +1119,12 @@
       var cle = el.getAttribute('data-filtre');
       etat.filtres[cle] = el.type === 'checkbox' ? el.checked : el.value;
       rendre();
+    } else if (el.hasAttribute('data-pilotage')) {
+      var cleP = el.getAttribute('data-pilotage');
+      etat.pilotage[cleP] = el.type === 'checkbox' ? el.checked : el.value;
+      rendre();
+    } else if (el.hasAttribute('data-mode')) {
+      etat.modePlan = el.value; etat.suppression = null; rendre();
     } else if (el.hasAttribute('data-onglet')) {
       etat.onglet = el.value; etat.alerte = null; etat.suppression = null; rendre();
     } else if (el.hasAttribute('data-ajout-multiple') && el.value) {
