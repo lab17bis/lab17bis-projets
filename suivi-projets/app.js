@@ -211,14 +211,15 @@
   }
 
   // Grist renvoie ['C'] pour une cellule masquée par les règles d'accès.
-  function emailDe(ligne) { return ligne && typeof ligne.Email === 'string' ? ligne.Email : ''; }
+  // Les règles d'accès de Grist comparent les emails en minuscules : on fait de même.
+  function emailDe(ligne) { return ligne && typeof ligne.Email === 'string' ? ligne.Email.trim().toLowerCase() : ''; }
 
   function identifierMoi() {
     var m = etat.moi;
     var comptes = (data.Comptes || []).filter(function (c) { return emailDe(c); })
       .sort(function (a, b) { return a.id - b.id; });
     m.compte = comptes[0] || null;
-    m.email = m.compte ? m.compte.Email : '';
+    m.email = m.compte ? emailDe(m.compte) : '';
     m.profil = null;
     if (!m.email) return;
     var lie = idx.Personnes[num(m.compte.Profil)];
